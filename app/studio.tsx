@@ -55,6 +55,7 @@ const scheduledTime = (value: string) => {
   return `${hour % 12 || 12}:${minute} ${hour >= 12 ? "PM" : "AM"}`;
 };
 const scheduledLabel = (value: string) => `${value.slice(0, 10)} · ${scheduledTime(value)}`;
+const readJson = (response: Response): Promise<Record<string, any>> => response.json() as Promise<Record<string, any>>;
 
 export function MaltaStudio() {
   const [active, setActive] = useState("Calendar");
@@ -76,7 +77,7 @@ export function MaltaStudio() {
     try {
       const response = await fetch("/api/workspace", { cache: "no-store" });
       if (!response.ok) return;
-      const data = await response.json();
+      const data = await readJson(response);
       if (data.posts?.length) setPosts(data.posts.map((p: Record<string, unknown>) => ({ id: p.id, title: p.title, caption: p.caption, format: p.format, status: p.status, scheduledAt: p.scheduled_at, location: p.location, tone: p.tone, assignee: p.assignee, mediaId: p.media_id || undefined, comments: (data.comments || []).filter((comment: Record<string, unknown>) => comment.post_id === p.id).map((comment: Record<string, unknown>) => ({ id: comment.id, body: comment.body, author: comment.author, createdAt: comment.created_at })) })));
       if (data.media?.length) setMedia(data.media.map((m: Record<string, unknown>, index: number) => ({ id: m.id, filename: m.filename, caption: m.caption, status: m.status, mimeType: m.mime_type, uploadedBy: m.uploaded_by, usedCount: m.used_count, tone: ["sun", "sea", "gold", "stone", "coral", "harbour", "pool"][index % 7], url: `/api/media/${m.id}` })));
       setIdeas((data.ideas || []).map((i: Record<string, unknown>) => ({ id: i.id, kind: i.kind, title: i.title, notes: i.notes, color: i.color, createdBy: i.created_by, mediaId: i.media_id || undefined, linkedTo: i.linked_to || undefined })));
@@ -91,7 +92,7 @@ export function MaltaStudio() {
 
   const saveRecord = useCallback(async (payload: Record<string, unknown>) => {
     const response = await fetch("/api/workspace", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
-    if (!response.ok) throw new Error((await response.json()).error || "Unable to save");
+    if (!response.ok) throw new Error((await readJson(response)).error || "Unable to save");
     await loadWorkspace();
   }, [loadWorkspace]);
 
@@ -106,8 +107,8 @@ export function MaltaStudio() {
 
   const addComment = useCallback(async (post: Post, body: string) => {
     const response = await fetch("/api/workspace", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: "comment", postId: post.id, body }) });
-    if (!response.ok) throw new Error((await response.json()).error || "Unable to add comment");
-    const saved = await response.json();
+    if (!response.ok) throw new Error((await readJson(response)).error || "Unable to add comment");
+    const saved = await readJson(response);
     const comment: PostComment = { id: saved.id, body, author: saved.author || "Malta team", createdAt: saved.createdAt || new Date().toISOString() };
     setPosts((items) => items.map((item) => item.id === post.id ? { ...item, comments: [...item.comments, comment] } : item));
     setSelectedPost((item) => item?.id === post.id ? { ...item, comments: [...item.comments, comment] } : item);
@@ -115,7 +116,7 @@ export function MaltaStudio() {
 
   const updateMediaNotes = useCallback(async (item: Media, caption: string) => {
     const response = await fetch(`/api/media/${item.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ caption }) });
-    if (!response.ok) throw new Error((await response.json()).error || "Unable to save notes");
+    if (!response.ok) throw new Error((await readJson(response)).error || "Unable to save notes");
     setMedia((items) => items.map((mediaItem) => mediaItem.id === item.id ? { ...mediaItem, caption } : mediaItem));
     setSelectedMedia((mediaItem) => mediaItem?.id === item.id ? { ...mediaItem, caption } : mediaItem);
     setNotice("Media notes saved");
@@ -136,8 +137,8 @@ export function MaltaStudio() {
   const uploadIdeaReference = useCallback(async (file: File) => {
     const form = new FormData(); form.set("file", file); form.set("caption", "");
     const response = await fetch("/api/media", { method: "POST", body: form });
-    if (!response.ok) throw new Error((await response.json()).error || "Upload failed");
-    const saved = await response.json();
+    if (!response.ok) throw new Error((await readJson(response)).error || "Upload failed");
+    const saved = await readJson(response);
     await saveRecord({ entity: "idea", kind: "Reference", title: file.name, notes: "", color: "coral", mediaId: saved.id });
     setNotice("Reference uploaded and added");
   }, [saveRecord]);
@@ -148,7 +149,7 @@ export function MaltaStudio() {
     const response = entity === "media"
       ? await fetch(`/api/media/${id}`, { method: "DELETE" })
       : await fetch("/api/workspace", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity, id }) });
-    if (!response.ok) { setNotice((await response.json()).error || "Unable to remove item"); return; }
+    if (!response.ok) { setNotice((await readJson(response)).error || "Unable to remove item"); return; }
     if (entity === "post") { setPosts((items) => items.filter((item) => item.id !== id)); setSelectedPost(null); }
     if (entity === "media") { setMedia((items) => items.filter((item) => item.id !== id)); setPosts((items) => items.map((item) => item.mediaId === id ? { ...item, mediaId: undefined } : item)); setSelectedMedia(null); }
     if (entity === "idea") setIdeas((items) => items.filter((item) => item.id !== id));
@@ -190,7 +191,7 @@ export function MaltaStudio() {
     try {
       if (modal === "upload") {
         const response = await fetch("/api/media", { method: "POST", body: new FormData(form) });
-        if (!response.ok) throw new Error((await response.json()).error || "Upload failed");
+        if (!response.ok) throw new Error((await readJson(response)).error || "Upload failed");
         await loadWorkspace();
       } else if (modal === "post") {
         const mediaId = String(values.mediaId || "");

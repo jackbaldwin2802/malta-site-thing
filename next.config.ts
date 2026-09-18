@@ -1,7 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  ...(process.env.VERCEL ? {
+    turbopack: {
+      resolveAlias: {
+        "cloudflare:workers": "./lib/vercel-cloudflare-stub.ts",
+      },
+    },
+  } : {}),
 };
 
 export default nextConfig;
