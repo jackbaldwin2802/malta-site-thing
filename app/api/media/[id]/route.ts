@@ -10,6 +10,18 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   return new Response(object.body, { headers: { "content-type": row.mime_type, "cache-control": "private, max-age=3600" } });
 }
 
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    if (!env.DB) return Response.json({ error: "Media storage is unavailable." }, { status: 503 });
+    const { id } = await context.params;
+    const body = await request.json() as { caption?: unknown };
+    await env.DB.prepare("UPDATE media_assets SET caption = ? WHERE id = ?").bind(String(body.caption ?? ""), id).run();
+    return Response.json({ ok: true });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Unable to save notes" }, { status: 500 });
+  }
+}
+
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
   try {
     if (!env.DB || !env.BUCKET) return Response.json({ error: "Media storage is unavailable." }, { status: 503 });

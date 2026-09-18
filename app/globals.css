@@ -103,7 +103,10 @@ body {
 
 .tone-crimson { background: linear-gradient(145deg, #2b0208, #b11226 58%, #050505); }
 
-.status-approved { background: #ffffff; color: #000000; }
+.status-approved { background: #22c55e; color: #06150b; }
+.status-denied { background: #ef4444; color: #ffffff; }
+.status-pending { background: #facc15; color: #1a1500; }
+.status-revisions { background: #3b82f6; color: #ffffff; }
 .status-review { background: #b11226; color: #ffffff; }
 .status-changes { background: #b11226; color: #ffffff; box-shadow: inset 0 0 0 1px #ffffff; }
 .status-draft { background: #171717; color: rgba(255, 255, 255, 0.7); }

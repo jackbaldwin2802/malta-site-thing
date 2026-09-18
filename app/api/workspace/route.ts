@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 
-const allowedStatuses = new Set(["Draft", "In review", "Changes requested", "Approved", "Scheduled", "Published", "Archived"]);
+const allowedStatuses = new Set(["Pending", "Approved", "Denied", "Needs revisions", "Draft", "In review", "Changes requested"]);
 
 function db() {
   if (!env.DB) throw new Error("Workspace storage is unavailable.");
@@ -9,13 +9,14 @@ function db() {
 
 export async function GET() {
   try {
-    const [posts, media, ideas, creators] = await db().batch([
+    const [posts, media, ideas, creators, comments] = await db().batch([
       db().prepare("SELECT * FROM posts ORDER BY scheduled_at ASC"),
       db().prepare("SELECT * FROM media_assets ORDER BY created_at DESC"),
       db().prepare("SELECT * FROM ideas ORDER BY created_at DESC"),
       db().prepare("SELECT * FROM creators ORDER BY created_at DESC"),
+      db().prepare("SELECT * FROM post_comments ORDER BY created_at ASC"),
     ]);
-    return Response.json({ posts: posts.results, media: media.results, ideas: ideas.results, creators: creators.results });
+    return Response.json({ posts: posts.results, media: media.results, ideas: ideas.results, creators: creators.results, comments: comments.results });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to load workspace" }, { status: 503 });
   }
@@ -35,9 +36,17 @@ export async function POST(request: Request) {
       const mediaId = String(body.mediaId ?? "").trim() || null;
       if (!title || !scheduledAt) return Response.json({ error: "Title and schedule are required." }, { status: 400 });
       const statements = [db().prepare("INSERT INTO posts (id,title,caption,format,status,scheduled_at,location,tone,assignee,media_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
-        .bind(id, title, String(body.caption ?? ""), String(body.format ?? "Reel"), "Draft", scheduledAt, String(body.location ?? ""), String(body.tone ?? "sea"), owner, mediaId, now)];
+        .bind(id, title, String(body.caption ?? ""), String(body.format ?? "Reel"), "Pending", scheduledAt, String(body.location ?? ""), String(body.tone ?? "sea"), owner, mediaId, now)];
       if (mediaId) statements.push(db().prepare("UPDATE media_assets SET used_count = used_count + 1 WHERE id = ?").bind(mediaId));
       await db().batch(statements);
+    } else if (entity === "comment") {
+      const postId = String(body.postId ?? "").trim();
+      const commentBody = String(body.body ?? "").trim();
+      if (!postId || !commentBody) return Response.json({ error: "Post and comment are required." }, { status: 400 });
+      const exists = await db().prepare("SELECT id FROM posts WHERE id = ?").bind(postId).first();
+      if (!exists) return Response.json({ error: "Post not found." }, { status: 404 });
+      await db().prepare("INSERT INTO post_comments (id,post_id,body,author,created_at) VALUES (?,?,?,?,?)").bind(id, postId, commentBody, owner, now).run();
+      return Response.json({ id, author: owner, createdAt: now }, { status: 201 });
     } else if (entity === "idea") {
       const title = String(body.title ?? "").trim();
       if (!title) return Response.json({ error: "Idea title is required." }, { status: 400 });
@@ -88,7 +97,7 @@ export async function DELETE(request: Request) {
     if (!id) return Response.json({ error: "Record id is required." }, { status: 400 });
     if (entity === "post") {
       const post = await db().prepare("SELECT media_id FROM posts WHERE id = ?").bind(id).first<{ media_id: string | null }>();
-      const statements = [db().prepare("DELETE FROM posts WHERE id = ?").bind(id)];
+      const statements = [db().prepare("DELETE FROM post_comments WHERE post_id = ?").bind(id), db().prepare("DELETE FROM posts WHERE id = ?").bind(id)];
       if (post?.media_id) statements.push(db().prepare("UPDATE media_assets SET used_count = MAX(used_count - 1, 0) WHERE id = ?").bind(post.media_id));
       await db().batch(statements);
     } else if (entity === "idea") {

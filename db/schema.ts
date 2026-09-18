@@ -5,7 +5,7 @@ export const posts = sqliteTable("posts", {
   title: text("title").notNull(),
   caption: text("caption").notNull().default(""),
   format: text("format").notNull().default("Reel"),
-  status: text("status").notNull().default("Draft"),
+  status: text("status").notNull().default("Pending"),
   scheduledAt: text("scheduled_at").notNull(),
   location: text("location").notNull().default(""),
   tone: text("tone").notNull().default("sea"),
@@ -17,6 +17,14 @@ export const posts = sqliteTable("posts", {
   index("idx_posts_status").on(table.status),
   index("idx_posts_media_id").on(table.mediaId),
 ]);
+
+export const postComments = sqliteTable("post_comments", {
+  id: text("id").primaryKey(),
+  postId: text("post_id").notNull(),
+  body: text("body").notNull(),
+  author: text("author").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("idx_post_comments_post_id").on(table.postId)]);
 
 export const mediaAssets = sqliteTable("media_assets", {
   id: text("id").primaryKey(),

@@ -21,7 +21,8 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
-type Post = { id: string; title: string; caption: string; format: string; status: string; scheduledAt: string; location: string; tone: string; assignee: string; mediaId?: string };
+type PostComment = { id: string; body: string; author: string; createdAt: string };
+type Post = { id: string; title: string; caption: string; format: string; status: string; scheduledAt: string; location: string; tone: string; assignee: string; mediaId?: string; comments: PostComment[] };
 type Media = { id: string; filename: string; caption: string; status: string; mimeType: string; uploadedBy: string; usedCount: number; tone: string; url?: string };
 type Idea = { id: string; kind: string; title: string; notes: string; color: string; createdBy: string };
 type Creator = { id: string; name: string; handle: string; specialties: string[]; status: string; instagram: string; location: string; bio: string; notes: string; nextAction: string };
@@ -47,7 +48,7 @@ const demoIdeas: Idea[] = [];
 const demoCreators: Creator[] = [];
 
 const toneClass = (_tone: string) => "tone-crimson";
-const statusClass = (status: string) => status === "Approved" ? "status-approved" : status === "In review" ? "status-review" : status === "Changes requested" ? "status-changes" : "status-draft";
+const statusClass = (status: string) => status === "Approved" ? "status-approved" : status === "Denied" ? "status-denied" : status === "Needs revisions" ? "status-revisions" : status === "Pending" ? "status-pending" : "status-draft";
 const scheduledDay = (value: string) => new Date(`${value.slice(0, 10)}T12:00:00Z`).getUTCDay();
 const scheduledTime = (value: string) => {
   const [hourText = "0", minute = "00"] = value.slice(11, 16).split(":");
@@ -76,7 +77,7 @@ export function MaltaStudio() {
       const response = await fetch("/api/workspace", { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
-      if (data.posts?.length) setPosts(data.posts.map((p: Record<string, unknown>) => ({ id: p.id, title: p.title, caption: p.caption, format: p.format, status: p.status, scheduledAt: p.scheduled_at, location: p.location, tone: p.tone, assignee: p.assignee, mediaId: p.media_id || undefined })));
+      if (data.posts?.length) setPosts(data.posts.map((p: Record<string, unknown>) => ({ id: p.id, title: p.title, caption: p.caption, format: p.format, status: p.status, scheduledAt: p.scheduled_at, location: p.location, tone: p.tone, assignee: p.assignee, mediaId: p.media_id || undefined, comments: (data.comments || []).filter((comment: Record<string, unknown>) => comment.post_id === p.id).map((comment: Record<string, unknown>) => ({ id: comment.id, body: comment.body, author: comment.author, createdAt: comment.created_at })) })));
       if (data.media?.length) setMedia(data.media.map((m: Record<string, unknown>, index: number) => ({ id: m.id, filename: m.filename, caption: m.caption, status: m.status, mimeType: m.mime_type, uploadedBy: m.uploaded_by, usedCount: m.used_count, tone: ["sun", "sea", "gold", "stone", "coral", "harbour", "pool"][index % 7], url: `/api/media/${m.id}` })));
       if (data.ideas?.length) setIdeas(data.ideas.map((i: Record<string, unknown>) => ({ id: i.id, kind: i.kind, title: i.title, notes: i.notes, color: i.color, createdBy: i.created_by })));
       if (data.creators?.length) {
@@ -99,8 +100,25 @@ export function MaltaStudio() {
     setSelectedPost((current) => current?.id === post.id ? { ...current, status } : current);
     try {
       await fetch("/api/workspace", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: "post", id: post.id, status }) });
-      setNotice(status === "Approved" ? "Post approved" : "Changes requested");
+      setNotice(`Post marked ${status.toLowerCase()}`);
     } catch { setNotice("Saved in this preview"); }
+  }, []);
+
+  const addComment = useCallback(async (post: Post, body: string) => {
+    const response = await fetch("/api/workspace", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: "comment", postId: post.id, body }) });
+    if (!response.ok) throw new Error((await response.json()).error || "Unable to add comment");
+    const saved = await response.json();
+    const comment: PostComment = { id: saved.id, body, author: saved.author || "Malta team", createdAt: saved.createdAt || new Date().toISOString() };
+    setPosts((items) => items.map((item) => item.id === post.id ? { ...item, comments: [...item.comments, comment] } : item));
+    setSelectedPost((item) => item?.id === post.id ? { ...item, comments: [...item.comments, comment] } : item);
+  }, []);
+
+  const updateMediaNotes = useCallback(async (item: Media, caption: string) => {
+    const response = await fetch(`/api/media/${item.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ caption }) });
+    if (!response.ok) throw new Error((await response.json()).error || "Unable to save notes");
+    setMedia((items) => items.map((mediaItem) => mediaItem.id === item.id ? { ...mediaItem, caption } : mediaItem));
+    setSelectedMedia((mediaItem) => mediaItem?.id === item.id ? { ...mediaItem, caption } : mediaItem);
+    setNotice("Media notes saved");
   }, []);
 
   const performDelete = useCallback(async () => {
@@ -127,7 +145,7 @@ export function MaltaStudio() {
         description: "Return the current counts for Malta posts, review work, media, ideas, and creators.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         annotations: { readOnlyHint: true, untrustedContentHint: false },
-        execute: async () => ({ posts: posts.length, inReview: posts.filter((p) => p.status === "In review").length, media: media.length, ideas: ideas.length, creators: creators.length }),
+        execute: async () => ({ posts: posts.length, pending: posts.filter((p) => p.status === "Pending").length, needsRevisions: posts.filter((p) => p.status === "Needs revisions").length, approved: posts.filter((p) => p.status === "Approved").length, denied: posts.filter((p) => p.status === "Denied").length, media: media.length, ideas: ideas.length, creators: creators.length }),
       }, { signal: lifecycle.signal });
       await document.modelContext?.registerTool({
         name: "create_content_idea", title: "Create a Malta content idea",
@@ -154,14 +172,8 @@ export function MaltaStudio() {
         if (!response.ok) throw new Error((await response.json()).error || "Upload failed");
         await loadWorkspace();
       } else if (modal === "post") {
-        let mediaId = String(values.mediaId || "");
-        const postMedia = values.postMedia;
-        if (postMedia instanceof File && postMedia.size > 0) {
-          const upload = new FormData(); upload.set("file", postMedia); upload.set("caption", String(values.caption || ""));
-          const uploadResponse = await fetch("/api/media", { method: "POST", body: upload });
-          if (!uploadResponse.ok) throw new Error((await uploadResponse.json()).error || "Media upload failed");
-          mediaId = String((await uploadResponse.json()).id || "");
-        }
+        const mediaId = String(values.mediaId || "");
+        if (!mediaId) throw new Error("Choose media from the content bank first.");
         await saveRecord({ entity: "post", title: values.title, caption: values.caption, format: values.format, scheduledAt: values.scheduledAt, location: values.location, tone: "crimson", mediaId });
       } else if (modal === "idea") {
         await saveRecord({ entity: "idea", title: values.title, notes: values.notes, kind: values.kind, color: "coral" });
@@ -197,9 +209,10 @@ export function MaltaStudio() {
         </main>
       </SidebarInset>
 
-      <PostSheet post={selectedPost} media={media} onClose={() => setSelectedPost(null)} onStatus={updatePostStatus} onDelete={(post) => setDeleteTarget({ entity: "post", id: post.id, label: post.title })} />
-      <MediaSheet item={selectedMedia} onClose={() => setSelectedMedia(null)} onDelete={(item) => setDeleteTarget({ entity: "media", id: item.id, label: item.filename })} />
-      <CreateDialog modal={modal} media={media} onClose={() => setModal(null)} onSubmit={handleCreate} />
+      <PostSheet post={selectedPost} media={media} onClose={() => setSelectedPost(null)} onStatus={updatePostStatus} onComment={addComment} onDelete={(post) => setDeleteTarget({ entity: "post", id: post.id, label: post.title })} />
+      <MediaSheet item={selectedMedia} onClose={() => setSelectedMedia(null)} onSaveNotes={updateMediaNotes} onDelete={(item) => setDeleteTarget({ entity: "media", id: item.id, label: item.filename })} />
+      <PostComposerSheet open={modal === "post"} media={media} onClose={() => setModal(null)} onSubmit={handleCreate} />
+      <CreateDialog modal={modal === "post" ? null : modal} onClose={() => setModal(null)} onSubmit={handleCreate} />
       <ConfirmDelete target={deleteTarget} onCancel={() => setDeleteTarget(null)} onConfirm={() => void performDelete()} />
       {notice && <button onClick={() => setNotice("")} className="fixed bottom-5 right-5 z-[70] rounded-xl bg-[#071d2b] px-4 py-3 text-sm font-medium text-white shadow-2xl">{notice}</button>}
     </SidebarProvider>
@@ -227,9 +240,10 @@ function MediaPreview({ item, className = "" }: { item?: Media; className?: stri
 function CalendarView({ posts, media, onSelect, onCreate }: { posts: Post[]; media: Media[]; onSelect: (post: Post) => void; onCreate: () => void }) {
   const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const preview = posts[0];
-  const inReview = posts.filter((post) => post.status === "In review").length;
-  const changes = posts.filter((post) => post.status === "Changes requested").length;
+  const pending = posts.filter((post) => post.status === "Pending").length;
+  const revisions = posts.filter((post) => post.status === "Needs revisions").length;
   const approved = posts.filter((post) => post.status === "Approved").length;
+  const denied = posts.filter((post) => post.status === "Denied").length;
 
   return <>
     <div className="mb-5 flex flex-wrap items-center gap-2">
@@ -241,12 +255,12 @@ function CalendarView({ posts, media, onSelect, onCreate }: { posts: Post[]; med
       <Button onClick={onCreate} className="bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New post</Button>
     </div>
 
-    <section aria-label="Workflow summary" className="mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10 lg:grid-cols-4">
-      {[['Week', posts.length], ['In review', inReview], ['Changes requested', changes], ['Approved', approved]].map(([label, value]) => <button key={String(label)} className="flex items-center justify-between bg-[#0d0d0d] px-4 py-3 text-left hover:bg-white/5"><span className="text-sm text-white/55">{label}</span><strong className="text-lg text-white">{value}</strong></button>)}
+    <section aria-label="Workflow summary" className="mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10 lg:grid-cols-5">
+      {[["Week", posts.length], ["Pending", pending], ["Needs revisions", revisions], ["Approved", approved], ["Denied", denied]].map(([label, value]) => <button key={String(label)} className="flex items-center justify-between bg-[#0d0d0d] px-4 py-3 text-left hover:bg-white/5"><span className="text-sm text-white/55">{label}</span><strong className="text-lg text-white">{value}</strong></button>)}
     </section>
 
     <section aria-label="Operations inbox" className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10 lg:grid-cols-4">
-      {[['Awaiting review', inReview], ['Approved, unscheduled', approved], ['Open days', Math.max(0, 7 - posts.length)], ['Published this period', 0]].map(([label, value]) => <div key={String(label)} className="bg-black px-4 py-3"><p className="text-xs uppercase tracking-[0.12em] text-white/35">{label}</p><p className="mt-1 text-xl font-semibold">{value}</p></div>)}
+      {[["Awaiting review", pending], ["Needs revisions", revisions], ["Open days", Math.max(0, 7 - posts.length)], ["Denied", denied]].map(([label, value]) => <div key={String(label)} className="bg-black px-4 py-3"><p className="text-xs uppercase tracking-[0.12em] text-white/35">{label}</p><p className="mt-1 text-xl font-semibold">{value}</p></div>)}
     </section>
 
     <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -257,7 +271,7 @@ function CalendarView({ posts, media, onSelect, onCreate }: { posts: Post[]; med
             const asset = post?.mediaId ? media.find((item) => item.id === post.mediaId) : undefined;
             return <div key={day} className="min-h-[510px] p-3">
               <div className="border-b border-white/10 pb-3 text-sm font-semibold"><span>{day}</span><span className="ml-1 text-white/35">Sep {14 + index}</span></div>
-              {post ? <div className="mt-3 rounded-lg border border-white/10 bg-black p-2 transition hover:border-[#b11226]"><MediaPreview item={asset} className="aspect-square w-full rounded-md" /><button onClick={() => onSelect(post)} className="w-full text-left"><p className="mt-3 line-clamp-3 text-sm font-semibold leading-5">{post.caption || post.title}</p><p className="mt-3 text-xs text-white/40">{scheduledTime(post.scheduledAt)} · {post.assignee}</p><span className="mt-3 block text-xs font-semibold text-[#b11226]">View details</span></button></div> : <button onClick={onCreate} className="mt-3 flex min-h-56 w-full flex-col items-center justify-center rounded-lg border border-dashed border-white/15 text-white/35 transition hover:border-[#b11226] hover:text-white"><Plus className="mb-2 size-4" /><span className="text-sm">Open day</span></button>}
+              {post ? <div className="mt-3 rounded-lg border border-white/10 bg-black p-2 transition hover:border-[#b11226]"><MediaPreview item={asset} className="aspect-square w-full rounded-md" /><button onClick={() => onSelect(post)} className="w-full text-left"><Badge className={`mt-3 border-0 ${statusClass(post.status)}`}>{post.status}</Badge><p className="mt-2 line-clamp-3 text-sm font-semibold leading-5">{post.caption || post.title}</p><p className="mt-3 text-xs text-white/40">{scheduledTime(post.scheduledAt)} · {post.assignee}</p><span className="mt-3 flex items-center justify-between text-xs font-semibold text-[#b11226]"><span>Details & comments</span><span className="flex items-center gap-1 text-white/45"><MessageCircle className="size-3.5" />{post.comments.length}</span></span></button></div> : <button onClick={onCreate} className="mt-3 flex min-h-56 w-full flex-col items-center justify-center rounded-lg border border-dashed border-white/15 text-white/35 transition hover:border-[#b11226] hover:text-white"><Plus className="mb-2 size-4" /><span className="text-sm">Open day</span></button>}
             </div>;
           })}
         </div>
@@ -265,7 +279,7 @@ function CalendarView({ posts, media, onSelect, onCreate }: { posts: Post[]; med
 
       <aside aria-label="Post preview" className="rounded-xl border border-white/10 bg-[#0d0d0d] p-4">
         <div className="flex items-center justify-between border-b border-white/10 pb-3"><div><p className="text-sm font-semibold">Instagram preview</p><p className="text-xs text-white/40">Select a post to review</p></div><Instagram className="size-5 text-[#b11226]" /></div>
-        {preview ? <div className="mt-4"><MediaPreview item={preview.mediaId ? media.find((item) => item.id === preview.mediaId) : undefined} className="aspect-[4/5] w-full rounded-lg" /><p className="mt-3 text-sm leading-6">{preview.caption}</p><p className="mt-2 text-xs text-white/40">@malta · {scheduledTime(preview.scheduledAt)}</p><Button onClick={() => onSelect(preview)} variant="outline" className="mt-4 w-full">Open details</Button></div> : <div className="grid min-h-[390px] place-items-center text-center"><div><CalendarDays className="mx-auto size-7 text-white/25" /><p className="mt-3 text-sm font-medium">No post selected</p><p className="mt-1 text-xs text-white/40">New posts will preview here.</p></div></div>}
+        {preview ? <div className="mt-4"><MediaPreview item={preview.mediaId ? media.find((item) => item.id === preview.mediaId) : undefined} className="aspect-[4/5] w-full rounded-lg" /><div className="mt-3 flex items-center justify-between"><Badge className={`border-0 ${statusClass(preview.status)}`}>{preview.status}</Badge><span className="flex items-center gap-1 text-xs text-white/45"><MessageCircle className="size-3.5" />{preview.comments.length}</span></div><p className="mt-3 text-sm leading-6">{preview.caption}</p><p className="mt-2 text-xs text-white/40">@malta · {scheduledTime(preview.scheduledAt)}</p><Button onClick={() => onSelect(preview)} variant="outline" className="mt-4 w-full">Open details & comments</Button></div> : <div className="grid min-h-[390px] place-items-center text-center"><div><CalendarDays className="mx-auto size-7 text-white/25" /><p className="mt-3 text-sm font-medium">No post selected</p><p className="mt-1 text-xs text-white/40">New posts will preview here.</p></div></div>}
       </aside>
     </div>
   </>;
@@ -326,20 +340,37 @@ function CreatorsView({ creators, selected, onSelect, onDelete }: { creators: Cr
   </>;
 }
 
-function PostSheet({ post, media, onClose, onStatus, onDelete }: { post: Post | null; media: Media[]; onClose: () => void; onStatus: (post: Post, status: string) => void; onDelete: (post: Post) => void }) {
+function PostSheet({ post, media, onClose, onStatus, onComment, onDelete }: { post: Post | null; media: Media[]; onClose: () => void; onStatus: (post: Post, status: string) => void; onComment: (post: Post, body: string) => Promise<void>; onDelete: (post: Post) => void }) {
   const asset = post?.mediaId ? media.find((item) => item.id === post.mediaId) : undefined;
-  return <Sheet open={Boolean(post)} onOpenChange={(open) => !open && onClose()}><SheetContent className="w-full overflow-y-auto sm:max-w-lg">{post && <><SheetHeader className="border-b px-6 py-5"><div className="mb-2 flex items-center gap-2"><Badge className={statusClass(post.status)}>{post.status}</Badge><span className="text-xs text-slate-500">{scheduledLabel(post.scheduledAt)}</span></div><SheetTitle className="text-2xl tracking-tight">{post.title}</SheetTitle><SheetDescription>Instagram {post.format.toLowerCase()} · {post.location}</SheetDescription></SheetHeader><div className="space-y-5 p-6"><MediaPreview item={asset} className="aspect-[4/5] w-full rounded-2xl" /><div><p className="mb-2 text-sm font-medium text-[#071d2b]">Caption</p><p className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">{post.caption || "No caption yet."}</p></div><div className="grid grid-cols-2 gap-3"><Button variant="outline" onClick={() => onStatus(post, "Changes requested")}>Request changes</Button><Button onClick={() => onStatus(post, "Approved")} className="bg-[#b11226] hover:bg-[#8f0d1e]">Approve post</Button></div><Button variant="outline" onClick={() => onDelete(post)} className="w-full text-[#b11226]"><Trash2 /> Remove post</Button></div></>}</SheetContent></Sheet>;
+  const [comment, setComment] = useState("");
+  useEffect(() => setComment(""), [post?.id]);
+  const submitComment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!post || !comment.trim()) return;
+    await onComment(post, comment.trim());
+    setComment("");
+  };
+  return <Sheet open={Boolean(post)} onOpenChange={(open) => !open && onClose()}><SheetContent className="w-full overflow-y-auto sm:max-w-lg">{post && <><SheetHeader className="border-b px-6 py-5"><div className="mb-2 flex items-center gap-2"><Badge className={statusClass(post.status)}>{post.status}</Badge><span className="text-xs text-slate-500">{scheduledLabel(post.scheduledAt)}</span></div><SheetTitle className="text-2xl tracking-tight">{post.title}</SheetTitle><SheetDescription>Instagram {post.format.toLowerCase()} · {post.location}</SheetDescription></SheetHeader><div className="space-y-6 p-6"><MediaPreview item={asset} className="aspect-[4/5] w-full rounded-2xl" /><div><p className="mb-2 text-sm font-medium text-[#071d2b]">Caption</p><p className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">{post.caption || "No caption yet."}</p></div><div><p className="mb-3 text-sm font-medium">Review status</p><div className="grid grid-cols-2 gap-2">{["Pending", "Approved", "Needs revisions", "Denied"].map((status) => <Button key={status} type="button" variant="outline" onClick={() => onStatus(post, status)} className={`${statusClass(status)} border-0 ${post.status === status ? "ring-2 ring-white" : "opacity-80"}`}>{status}</Button>)}</div></div><div><div className="mb-3 flex items-center justify-between"><p className="text-sm font-medium">Comments</p><span className="text-xs text-white/40">{post.comments.length}</span></div><div className="max-h-64 space-y-2 overflow-y-auto">{post.comments.length ? post.comments.map((item) => <div key={item.id} className="rounded-xl border border-white/10 bg-white/5 p-3"><div className="flex justify-between gap-3 text-xs text-white/40"><span>{item.author}</span><time>{new Date(item.createdAt).toLocaleString()}</time></div><p className="mt-2 text-sm leading-6">{item.body}</p></div>) : <p className="rounded-xl border border-dashed border-white/10 p-4 text-sm text-white/40">No comments yet.</p>}</div><form onSubmit={submitComment} className="mt-3 space-y-2"><Textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Leave feedback or revision notes" /><Button type="submit" disabled={!comment.trim()} className="w-full bg-[#b11226] hover:bg-[#8f0d1e]"><MessageCircle /> Add comment</Button></form></div><Button variant="outline" onClick={() => onDelete(post)} className="w-full text-[#b11226]"><Trash2 /> Remove from calendar</Button><p className="-mt-4 text-center text-xs text-white/35">The media stays in the Content Bank.</p></div></>}</SheetContent></Sheet>;
 }
 
-function MediaSheet({ item, onClose, onDelete }: { item: Media | null; onClose: () => void; onDelete: (item: Media) => void }) {
-  return <Sheet open={Boolean(item)} onOpenChange={(open) => !open && onClose()}><SheetContent className="w-full overflow-y-auto sm:max-w-lg">{item && <><SheetHeader className="border-b px-6 py-5"><Badge className={`mb-2 w-fit ${statusClass(item.status)}`}>{item.status}</Badge><SheetTitle className="text-xl tracking-tight">{item.filename}</SheetTitle><SheetDescription>Uploaded by {item.uploadedBy} · {item.usedCount ? `Used in ${item.usedCount} post${item.usedCount > 1 ? "s" : ""}` : "Unused"}</SheetDescription></SheetHeader><div className="space-y-5 p-6"><MediaPreview item={item} className="aspect-[4/3] w-full rounded-2xl" /><div><p className="mb-2 text-sm font-medium text-[#071d2b]">Reusable caption</p><p className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">{item.caption || "No reusable caption yet."}</p></div><div className="grid grid-cols-2 gap-3"><Button variant="outline" asChild><a href={item.url || `/api/media/${item.id}`} download><Download /> Download</a></Button><Button className="bg-[#b11226] hover:bg-[#8f0d1e]"><CalendarDays /> Create post</Button></div><Button variant="outline" onClick={() => onDelete(item)} className="w-full text-[#b11226]"><Trash2 /> Remove media</Button></div></>}</SheetContent></Sheet>;
+function MediaSheet({ item, onClose, onSaveNotes, onDelete }: { item: Media | null; onClose: () => void; onSaveNotes: (item: Media, caption: string) => Promise<void>; onDelete: (item: Media) => void }) {
+  const [notes, setNotes] = useState("");
+  useEffect(() => setNotes(item?.caption || ""), [item]);
+  return <Sheet open={Boolean(item)} onOpenChange={(open) => !open && onClose()}><SheetContent className="w-full overflow-y-auto sm:max-w-lg">{item && <><SheetHeader className="border-b px-6 py-5"><Badge className={`mb-2 w-fit ${statusClass(item.status)}`}>{item.status}</Badge><SheetTitle className="text-xl tracking-tight">{item.filename}</SheetTitle><SheetDescription>Uploaded by {item.uploadedBy} · {item.usedCount ? `Used in ${item.usedCount} post${item.usedCount > 1 ? "s" : ""}` : "Unused"}</SheetDescription></SheetHeader><div className="space-y-5 p-6"><MediaPreview item={item} className="aspect-[4/3] w-full rounded-2xl" /><div><Label htmlFor="media-notes">Notes</Label><Textarea id="media-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Usage notes, edit direction, or caption ideas" className="mt-2 min-h-28" /><Button type="button" onClick={() => void onSaveNotes(item, notes)} className="mt-3 w-full bg-[#b11226] hover:bg-[#8f0d1e]">Save notes</Button></div><Button variant="outline" asChild className="w-full"><a href={item.url || `/api/media/${item.id}`} download><Download /> Download</a></Button><Button variant="outline" onClick={() => onDelete(item)} className="w-full text-[#b11226]"><Trash2 /> Remove media</Button></div></>}</SheetContent></Sheet>;
 }
 
-function CreateDialog({ modal, media, onClose, onSubmit }: { modal: Modal; media: Media[]; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+function PostComposerSheet({ open, media, onClose, onSubmit }: { open: boolean; media: Media[]; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const [selected, setSelected] = useState("");
+  useEffect(() => { if (!open) setSelected(""); }, [open]);
+  return <Sheet open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}><SheetContent side="bottom" className="max-h-[88vh] overflow-y-auto rounded-t-3xl border-white/15 px-0"><form onSubmit={onSubmit}><div className="mx-auto max-w-5xl px-5 pb-6"><SheetHeader className="border-b border-white/10 pb-5 text-left"><SheetTitle className="text-2xl">Add post to calendar</SheetTitle><SheetDescription>Choose an existing Content Bank asset, then add its schedule and post details.</SheetDescription></SheetHeader><div className="grid gap-6 py-6 lg:grid-cols-[1.3fr_.7fr]"><section><div className="mb-3 flex items-center justify-between"><Label>Choose from Content Bank</Label><span className="text-xs text-white/40">{media.length} assets</span></div>{media.length ? <div className="grid max-h-[48vh] grid-cols-2 gap-3 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">{media.map((item) => <label key={item.id} className={`cursor-pointer rounded-xl border p-2 transition ${selected === item.id ? "border-[#b11226] bg-[#b11226]/10 ring-1 ring-[#b11226]" : "border-white/10 bg-white/5 hover:border-white/25"}`}><input type="radio" name="mediaId" value={item.id} checked={selected === item.id} onChange={() => setSelected(item.id)} className="sr-only" required /><MediaPreview item={item} className="aspect-square w-full rounded-lg" /><p className="mt-2 truncate text-xs font-medium">{item.filename}</p></label>)}</div> : <div className="grid min-h-48 place-items-center rounded-xl border border-dashed border-white/15 p-6 text-center"><div><Images className="mx-auto size-7 text-white/25" /><p className="mt-3 text-sm font-medium">Content Bank is empty</p><p className="mt-1 text-xs text-white/40">Upload media from the Content Bank page first.</p></div></div>}</section><section className="grid content-start gap-4"><div className="grid gap-2"><Label htmlFor="post-title">Post title</Label><Input id="post-title" name="title" required placeholder="What are we publishing?" /></div><div className="grid grid-cols-2 gap-3"><div className="grid gap-2"><Label htmlFor="post-format">Format</Label><select id="post-format" name="format" className="h-10 rounded-xl border border-white/15 bg-[#0d0d0d] px-3 text-sm"><option>Reel</option><option>Carousel</option><option>Story</option><option>Photo</option></select></div><div className="grid gap-2"><Label htmlFor="post-schedule">Schedule</Label><Input id="post-schedule" name="scheduledAt" type="datetime-local" required /></div></div><div className="grid gap-2"><Label htmlFor="post-location">Location</Label><Input id="post-location" name="location" placeholder="Malta" /></div><div className="grid gap-2"><Label htmlFor="post-caption">Caption</Label><Textarea id="post-caption" name="caption" placeholder="Write or paste the working caption" className="min-h-28" /></div><div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/45">New posts start as <span className="font-semibold text-yellow-300">Pending</span>. Media remains in Content Bank if the post is later removed from the calendar.</div></section></div><div className="flex justify-end gap-3 border-t border-white/10 pt-5"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={!media.length || !selected} className="bg-[#b11226] hover:bg-[#8f0d1e]"><CalendarDays /> Add to calendar</Button></div></div></form></SheetContent></Sheet>;
+}
+
+function CreateDialog({ modal, media = [], onClose, onSubmit }: { modal: Modal; media?: Media[]; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   const title = modal === "upload" ? "Upload media" : modal === "idea" ? "Add an idea" : modal === "creator" ? "Add a creator" : "Schedule a post";
   return <Dialog open={Boolean(modal)} onOpenChange={(open) => !open && onClose()}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl"><form onSubmit={onSubmit}><DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>{modal === "upload" ? "Add an image or video to the shared library." : modal === "idea" ? "Capture a rough angle before it disappears." : modal === "creator" ? "Keep their fit, contact details, and next step together." : "Attach media, write the caption, and add the post to the calendar."}</DialogDescription></DialogHeader><div className="grid gap-4 py-6">{modal === "upload" ? <><div className="grid gap-2"><Label htmlFor="file">Image or video</Label><Input id="file" name="file" type="file" accept="image/*,video/*" required /></div><div className="grid gap-2"><Label htmlFor="caption">Reusable caption</Label><Textarea id="caption" name="caption" placeholder="Caption, usage notes, or edit direction" /></div></> : modal === "idea" ? <><div className="grid gap-2"><Label htmlFor="title">Idea title</Label><Input id="title" name="title" required /></div><div className="grid gap-2"><Label htmlFor="kind">Card type</Label><select id="kind" name="kind" className="h-10 rounded-xl border bg-white px-3 text-sm"><option>Idea</option><option>Reference</option></select></div><div className="grid gap-2"><Label htmlFor="notes">Notes</Label><Textarea id="notes" name="notes" /></div></> : modal === "creator" ? <><div className="grid gap-2"><Label htmlFor="name">Name</Label><Input id="name" name="name" required /></div><div className="grid grid-cols-2 gap-3"><div className="grid gap-2"><Label htmlFor="handle">Instagram handle</Label><Input id="handle" name="handle" placeholder="@name" /></div><div className="grid gap-2"><Label htmlFor="location">Location</Label><Input id="location" name="location" /></div></div><div className="grid gap-2"><Label htmlFor="instagram">Instagram URL</Label><Input id="instagram" name="instagram" type="url" /></div><div className="grid gap-2"><Label htmlFor="specialty">Specialty</Label><Input id="specialty" name="specialty" /></div><div className="grid gap-2"><Label htmlFor="bio">About and fit</Label><Textarea id="bio" name="bio" /></div><div className="grid gap-2"><Label htmlFor="nextAction">Next step</Label><Input id="nextAction" name="nextAction" /></div></> : <><div className="grid gap-2"><Label htmlFor="title">Post title</Label><Input id="title" name="title" required placeholder="What are we publishing?" /></div><div className="grid grid-cols-2 gap-3"><div className="grid gap-2"><Label htmlFor="format">Format</Label><select id="format" name="format" className="h-10 rounded-xl border bg-white px-3 text-sm"><option>Reel</option><option>Carousel</option><option>Story</option><option>Photo</option></select></div><div className="grid gap-2"><Label htmlFor="scheduledAt">Schedule</Label><Input id="scheduledAt" name="scheduledAt" type="datetime-local" required /></div></div><div className="grid gap-2"><Label htmlFor="mediaId">Choose from content bank</Label><select id="mediaId" name="mediaId" className="h-10 rounded-xl border bg-white px-3 text-sm"><option value="">No existing media</option>{media.map((item) => <option key={item.id} value={item.id}>{item.filename}</option>)}</select></div><div className="grid gap-2 rounded-xl border border-dashed border-white/15 p-4"><Label htmlFor="postMedia">Or upload media with this post</Label><Input id="postMedia" name="postMedia" type="file" accept="image/*,video/*" /><p className="text-xs text-white/40">A new upload overrides the content-bank selection.</p></div><div className="grid gap-2"><Label htmlFor="location">Location</Label><Input id="location" name="location" placeholder="Malta" /></div><div className="grid gap-2"><Label htmlFor="caption">Caption</Label><Textarea id="caption" name="caption" placeholder="Write or paste the working caption" /></div></>}</div><DialogFooter><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" className="bg-[#b11226] hover:bg-[#8f0d1e]">{modal === "upload" ? <><Upload /> Upload</> : "Save"}</Button></DialogFooter></form></DialogContent></Dialog>;
 }
 
 function ConfirmDelete({ target, onCancel, onConfirm }: { target: DeleteTarget | null; onCancel: () => void; onConfirm: () => void }) {
-  return <AlertDialog open={Boolean(target)} onOpenChange={(open) => !open && onCancel()}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Remove this {target?.entity}?</AlertDialogTitle><AlertDialogDescription>{target?.label} will be removed from the Malta workspace. This cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={onCancel}>Cancel</AlertDialogCancel><AlertDialogAction onClick={onConfirm} className="bg-[#b11226] text-white hover:bg-[#8f0d1e]">Remove</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>;
+  const description = target?.entity === "post" ? `${target.label} will be removed from the posting schedule. Its media will stay in Content Bank.` : `${target?.label} will be removed from the Malta workspace. This cannot be undone.`;
+  return <AlertDialog open={Boolean(target)} onOpenChange={(open) => !open && onCancel()}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{target?.entity === "post" ? "Remove from calendar?" : `Remove this ${target?.entity}?`}</AlertDialogTitle><AlertDialogDescription>{description}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={onCancel}>Cancel</AlertDialogCancel><AlertDialogAction onClick={onConfirm} className="bg-[#b11226] text-white hover:bg-[#8f0d1e]">Remove</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>;
 }
