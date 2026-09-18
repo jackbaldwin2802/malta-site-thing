@@ -10,10 +10,12 @@ export const posts = sqliteTable("posts", {
   location: text("location").notNull().default(""),
   tone: text("tone").notNull().default("sea"),
   assignee: text("assignee").notNull().default("Malta team"),
+  mediaId: text("media_id"),
   createdAt: text("created_at").notNull(),
 }, (table) => [
   index("idx_posts_scheduled_at").on(table.scheduledAt),
   index("idx_posts_status").on(table.status),
+  index("idx_posts_media_id").on(table.mediaId),
 ]);
 
 export const mediaAssets = sqliteTable("media_assets", {

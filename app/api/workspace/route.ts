@@ -32,9 +32,12 @@ export async function POST(request: Request) {
     if (entity === "post") {
       const title = String(body.title ?? "").trim();
       const scheduledAt = String(body.scheduledAt ?? "").trim();
+      const mediaId = String(body.mediaId ?? "").trim() || null;
       if (!title || !scheduledAt) return Response.json({ error: "Title and schedule are required." }, { status: 400 });
-      await db().prepare("INSERT INTO posts (id,title,caption,format,status,scheduled_at,location,tone,assignee,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-        .bind(id, title, String(body.caption ?? ""), String(body.format ?? "Reel"), "Draft", scheduledAt, String(body.location ?? ""), String(body.tone ?? "sea"), owner, now).run();
+      const statements = [db().prepare("INSERT INTO posts (id,title,caption,format,status,scheduled_at,location,tone,assignee,media_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+        .bind(id, title, String(body.caption ?? ""), String(body.format ?? "Reel"), "Draft", scheduledAt, String(body.location ?? ""), String(body.tone ?? "sea"), owner, mediaId, now)];
+      if (mediaId) statements.push(db().prepare("UPDATE media_assets SET used_count = used_count + 1 WHERE id = ?").bind(mediaId));
+      await db().batch(statements);
     } else if (entity === "idea") {
       const title = String(body.title ?? "").trim();
       if (!title) return Response.json({ error: "Idea title is required." }, { status: 400 });
@@ -74,5 +77,29 @@ export async function PATCH(request: Request) {
     return Response.json({ ok: true });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to update" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await request.json() as Record<string, unknown>;
+    const entity = String(body.entity ?? "");
+    const id = String(body.id ?? "");
+    if (!id) return Response.json({ error: "Record id is required." }, { status: 400 });
+    if (entity === "post") {
+      const post = await db().prepare("SELECT media_id FROM posts WHERE id = ?").bind(id).first<{ media_id: string | null }>();
+      const statements = [db().prepare("DELETE FROM posts WHERE id = ?").bind(id)];
+      if (post?.media_id) statements.push(db().prepare("UPDATE media_assets SET used_count = MAX(used_count - 1, 0) WHERE id = ?").bind(post.media_id));
+      await db().batch(statements);
+    } else if (entity === "idea") {
+      await db().prepare("DELETE FROM ideas WHERE id = ?").bind(id).run();
+    } else if (entity === "creator") {
+      await db().prepare("DELETE FROM creators WHERE id = ?").bind(id).run();
+    } else {
+      return Response.json({ error: "Unsupported workspace record." }, { status: 400 });
+    }
+    return Response.json({ ok: true });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Unable to remove" }, { status: 500 });
   }
 }

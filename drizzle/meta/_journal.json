@@ -15,6 +15,13 @@
       "when": 1789704300000,
       "tag": "0001_clear_starter_content",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789705766433,
+      "tag": "0002_clumsy_frog_thor",
+      "breakpoints": true
     }
   ]
 }
