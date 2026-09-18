@@ -30,6 +30,7 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
     if (!row) return Response.json({ error: "Media not found." }, { status: 404 });
     await env.DB.batch([
       env.DB.prepare("UPDATE posts SET media_id = NULL WHERE media_id = ?").bind(id),
+      env.DB.prepare("UPDATE ideas SET media_id = NULL WHERE media_id = ?").bind(id),
       env.DB.prepare("DELETE FROM media_assets WHERE id = ?").bind(id),
     ]);
     await env.BUCKET.delete(row.object_key);

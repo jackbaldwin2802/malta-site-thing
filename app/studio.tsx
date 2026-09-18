@@ -3,8 +3,8 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Clock3, Compass, Download, ExternalLink,
-  Image as ImageIcon, Images, Camera as Instagram, Lightbulb, Link2, MapPin, MessageCircle,
-  MoreHorizontal, Plus, Search, Sparkles, Trash2, Upload, UserRound, Users,
+  Image as ImageIcon, Images, Camera as Instagram, Lightbulb, Link2, MessageCircle,
+  Maximize2, MoreHorizontal, Plus, Search, Sparkles, Trash2, Upload, UserRound, Users, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 type PostComment = { id: string; body: string; author: string; createdAt: string };
 type Post = { id: string; title: string; caption: string; format: string; status: string; scheduledAt: string; location: string; tone: string; assignee: string; mediaId?: string; comments: PostComment[] };
 type Media = { id: string; filename: string; caption: string; status: string; mimeType: string; uploadedBy: string; usedCount: number; tone: string; url?: string };
-type Idea = { id: string; kind: string; title: string; notes: string; color: string; createdBy: string };
+type Idea = { id: string; kind: string; title: string; notes: string; color: string; createdBy: string; mediaId?: string; linkedTo?: string };
 type Creator = { id: string; name: string; handle: string; specialties: string[]; status: string; instagram: string; location: string; bio: string; notes: string; nextAction: string };
 type Modal = "post" | "upload" | "idea" | "creator" | null;
 type DeleteTarget = { entity: "post" | "media" | "idea" | "creator"; id: string; label: string };
@@ -79,7 +79,7 @@ export function MaltaStudio() {
       const data = await response.json();
       if (data.posts?.length) setPosts(data.posts.map((p: Record<string, unknown>) => ({ id: p.id, title: p.title, caption: p.caption, format: p.format, status: p.status, scheduledAt: p.scheduled_at, location: p.location, tone: p.tone, assignee: p.assignee, mediaId: p.media_id || undefined, comments: (data.comments || []).filter((comment: Record<string, unknown>) => comment.post_id === p.id).map((comment: Record<string, unknown>) => ({ id: comment.id, body: comment.body, author: comment.author, createdAt: comment.created_at })) })));
       if (data.media?.length) setMedia(data.media.map((m: Record<string, unknown>, index: number) => ({ id: m.id, filename: m.filename, caption: m.caption, status: m.status, mimeType: m.mime_type, uploadedBy: m.uploaded_by, usedCount: m.used_count, tone: ["sun", "sea", "gold", "stone", "coral", "harbour", "pool"][index % 7], url: `/api/media/${m.id}` })));
-      if (data.ideas?.length) setIdeas(data.ideas.map((i: Record<string, unknown>) => ({ id: i.id, kind: i.kind, title: i.title, notes: i.notes, color: i.color, createdBy: i.created_by })));
+      setIdeas((data.ideas || []).map((i: Record<string, unknown>) => ({ id: i.id, kind: i.kind, title: i.title, notes: i.notes, color: i.color, createdBy: i.created_by, mediaId: i.media_id || undefined, linkedTo: i.linked_to || undefined })));
       if (data.creators?.length) {
         const mapped = data.creators.map((c: Record<string, unknown>) => ({ id: c.id, name: c.name, handle: c.handle, specialties: JSON.parse(String(c.specialties || "[]")), status: c.status, instagram: c.instagram, location: c.location, bio: c.bio, notes: c.notes, nextAction: c.next_action }));
         setCreators(mapped); setSelectedCreator(mapped[0]);
@@ -120,6 +120,27 @@ export function MaltaStudio() {
     setSelectedMedia((mediaItem) => mediaItem?.id === item.id ? { ...mediaItem, caption } : mediaItem);
     setNotice("Media notes saved");
   }, []);
+
+  const createIdea = useCallback(async (kind: "Idea" | "Reference", item?: Media) => {
+    await saveRecord({ entity: "idea", kind, title: item?.filename || "Untitled idea", notes: item?.caption || "", color: "coral", mediaId: item?.id || "" });
+    setNotice(kind === "Reference" ? "Reference added" : "Idea added");
+  }, [saveRecord]);
+
+  const updateIdea = useCallback(async (idea: Idea, changes: Partial<Idea>) => {
+    const next = { ...idea, ...changes };
+    setIdeas((items) => items.map((item) => item.id === idea.id ? next : item));
+    const response = await fetch("/api/workspace", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: "idea", id: idea.id, title: next.title, notes: next.notes, linkedTo: next.linkedTo || "" }) });
+    if (!response.ok) setNotice("Unable to save idea");
+  }, []);
+
+  const uploadIdeaReference = useCallback(async (file: File) => {
+    const form = new FormData(); form.set("file", file); form.set("caption", "");
+    const response = await fetch("/api/media", { method: "POST", body: form });
+    if (!response.ok) throw new Error((await response.json()).error || "Upload failed");
+    const saved = await response.json();
+    await saveRecord({ entity: "idea", kind: "Reference", title: file.name, notes: "", color: "coral", mediaId: saved.id });
+    setNotice("Reference uploaded and added");
+  }, [saveRecord]);
 
   const performDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -191,19 +212,19 @@ export function MaltaStudio() {
   return (
     <SidebarProvider defaultOpen>
       <Sidebar collapsible="icon" className="border-r border-white/10 bg-[#071d2b] text-white">
-        <SidebarHeader className="p-4"><div className="flex items-center gap-3 px-1 py-2"><span className="grid size-10 place-items-center rounded-xl bg-[#b11226]"><MapPin className="size-5" /></span><div className="group-data-[collapsible=icon]:hidden"><p className="text-lg font-bold tracking-[-0.04em]">MALTA</p><p className="text-xs uppercase tracking-[0.18em] text-white/45">Content desk</p></div></div></SidebarHeader>
+        <SidebarHeader className="p-4"><div className="flex items-center gap-3 px-1 py-2"><span className="grid size-10 place-items-center rounded-xl bg-[#b11226] text-2xl leading-none" style={{ fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", sans-serif' }} aria-label="Malta flag">🇲🇹</span><div className="group-data-[collapsible=icon]:hidden"><p className="text-lg font-bold tracking-[-0.04em]">MALTA</p><p className="text-xs uppercase tracking-[0.18em] text-white/45">Content desk</p></div></div></SidebarHeader>
         <SidebarContent><SidebarGroup><SidebarGroupContent><SidebarMenu>{nav.map((item) => <SidebarMenuItem key={item.label}><SidebarMenuButton isActive={active === item.label} tooltip={item.label} onClick={() => { setActive(item.label); setQuery(""); }} className="h-11 text-sky-50/70 hover:bg-white/10 hover:text-white data-[active=true]:bg-[#ff6b4a] data-[active=true]:text-white"><item.icon /><span>{item.label}</span></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarGroupContent></SidebarGroup></SidebarContent>
         <SidebarFooter className="p-4"><div className="rounded-xl border border-white/10 bg-white/5 p-3 group-data-[collapsible=icon]:hidden"><p className="text-sm font-semibold">@malta</p><a href="https://www.instagram.com/malta/" target="_blank" rel="noreferrer" className="mt-1 block text-xs text-white/45">Open Instagram ↗</a></div></SidebarFooter>
       </Sidebar>
 
       <SidebarInset className="min-w-0 bg-[#f3f7f8]">
-        <header className="flex h-16 items-center gap-3 border-b border-slate-200/80 bg-white/85 px-4 backdrop-blur-xl md:px-7"><SidebarTrigger /><div className="h-5 w-px bg-slate-200" /><div className="relative max-w-md flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search Malta studio" placeholder={`Search ${active.toLowerCase()}…`} className="h-10 border-0 bg-slate-100 pl-9 shadow-none" /></div>{active !== "Calendar" && <Button onClick={() => setModal(active === "Content bank" ? "upload" : active === "Idea bank" ? "idea" : "creator")} className="ml-auto rounded-xl bg-[#ff6b4a] text-white hover:bg-[#eb5d3e]"><Plus className="size-4" /><span className="hidden sm:inline">{active === "Content bank" ? "Upload media" : active === "Idea bank" ? "New idea" : "Add creator"}</span></Button>}</header>
+        <header className="flex h-16 items-center gap-3 border-b border-slate-200/80 bg-white/85 px-4 backdrop-blur-xl md:px-7"><SidebarTrigger /><div className="h-5 w-px bg-slate-200" /><div className="relative max-w-md flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search Malta studio" placeholder={`Search ${active.toLowerCase()}…`} className="h-10 border-0 bg-slate-100 pl-9 shadow-none" /></div>{active !== "Calendar" && active !== "Idea bank" && <Button onClick={() => setModal(active === "Content bank" ? "upload" : "creator")} className="ml-auto rounded-xl bg-[#ff6b4a] text-white hover:bg-[#eb5d3e]"><Plus className="size-4" /><span className="hidden sm:inline">{active === "Content bank" ? "Upload media" : "Add creator"}</span></Button>}</header>
 
         <main className="min-h-[calc(100vh-4rem)] overflow-x-hidden p-4 md:p-7">
           <div className="mx-auto max-w-[1500px]">
             {active === "Calendar" && <CalendarView posts={filteredPosts} media={media} onSelect={setSelectedPost} onCreate={(date) => { setComposerDate(date); setModal("post"); }} />}
             {active === "Content bank" && <ContentView media={filteredMedia} allMedia={media} filter={mediaFilter} onFilter={setMediaFilter} onSelect={setSelectedMedia} onUpload={() => setModal("upload")} query={query} onQuery={setQuery} />}
-            {active === "Idea bank" && (ideas.length ? <IdeasView ideas={ideas.filter((i) => `${i.title} ${i.notes}`.toLowerCase().includes(query.toLowerCase()))} onDelete={(idea) => setDeleteTarget({ entity: "idea", id: idea.id, label: idea.title })} /> : <EmptyView eyebrow="Idea bank" title="No ideas saved" body="Save the rough hook now. Turn it into a post later." action="Add idea" onAction={() => setModal("idea")} />)}
+            {active === "Idea bank" && <IdeasView ideas={ideas} media={media} initialQuery={query} onCreate={createIdea} onUpdate={updateIdea} onUploadReference={uploadIdeaReference} onDelete={(idea) => setDeleteTarget({ entity: "idea", id: idea.id, label: idea.title })} />}
             {active === "Creators" && (creators.length ? <CreatorsView creators={creators.filter((c) => `${c.name} ${c.handle} ${c.specialties.join(" ")}`.toLowerCase().includes(query.toLowerCase()))} selected={selectedCreator} onSelect={setSelectedCreator} onDelete={(creator) => setDeleteTarget({ entity: "creator", id: creator.id, label: creator.name })} /> : <EmptyView eyebrow="Creators" title="No creators added" body="Add the people you brief, shoot with, or contact for the page." action="Add creator" onAction={() => setModal("creator")} />)}
           </div>
         </main>
@@ -313,20 +334,58 @@ function ContentView({ media, allMedia, filter, onFilter, onSelect, onUpload, qu
   </>;
 }
 
-function IdeasView({ ideas, onDelete }: { ideas: Idea[]; onDelete: (idea: Idea) => void }) {
+function IdeasView({ ideas, media, initialQuery, onCreate, onUpdate, onUploadReference, onDelete }: { ideas: Idea[]; media: Media[]; initialQuery: string; onCreate: (kind: "Idea" | "Reference", item?: Media) => Promise<void>; onUpdate: (idea: Idea, changes: Partial<Idea>) => Promise<void>; onUploadReference: (file: File) => Promise<void>; onDelete: (idea: Idea) => void }) {
+  const [filter, setFilter] = useState("All");
+  const [localQuery, setLocalQuery] = useState(initialQuery);
+  const [zoom, setZoom] = useState(.8);
+  const [referenceOpen, setReferenceOpen] = useState(false);
+  const [connectSource, setConnectSource] = useState<Idea | null>(null);
+  useEffect(() => setLocalQuery(initialQuery), [initialQuery]);
+  const connectionCount = (idea: Idea) => Number(Boolean(idea.linkedTo)) + ideas.filter((item) => item.linkedTo === idea.id).length;
+  const visible = ideas.filter((idea) => {
+    if (filter === "Ideas" && idea.kind !== "Idea") return false;
+    if (filter === "References" && idea.kind !== "Reference") return false;
+    if (filter === "Linked" && connectionCount(idea) === 0) return false;
+    return `${idea.title} ${idea.notes}`.toLowerCase().includes(localQuery.toLowerCase());
+  });
+  const connect = (idea: Idea) => {
+    if (!connectSource) { setConnectSource(idea); return; }
+    if (connectSource.id === idea.id) { setConnectSource(null); return; }
+    void onUpdate(connectSource, { linkedTo: idea.id }); setConnectSource(null);
+  };
   return <>
-    <PageHeading eyebrow="Creative pipeline" title="Idea bank" body="Shape rough angles and references before they become scheduled posts." />
-    <div className="rounded-[26px] border border-slate-200/80 bg-[#eaf1f3] p-5 shadow-inner md:p-8">
-      <div className="mb-5 flex items-center justify-between"><div className="flex gap-2"><Badge variant="secondary">{ideas.length} cards</Badge><Badge variant="secondary">{ideas.filter((idea) => idea.kind === "Reference").length} references</Badge></div><div className="text-sm text-slate-500">Creative canvas</div></div>
-      <section aria-label="Idea board" className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-        {ideas.map((idea, index) => <article key={idea.id} className={`relative min-h-56 rounded-[22px] border border-white/80 bg-white p-5 shadow-[0_16px_40px_rgba(7,29,43,.08)] ${index % 3 === 1 ? "md:translate-y-8" : ""}`}>
-          <div className="flex items-center justify-between"><Badge className="bg-[#b11226]">{idea.kind}</Badge><Button variant="ghost" size="icon" onClick={() => onDelete(idea)} aria-label={`Remove ${idea.title}`}><Trash2 /></Button></div>
-          <h2 className="mt-7 text-xl font-semibold tracking-tight text-[#071d2b]">{idea.title}</h2><p className="mt-2 text-sm leading-6 text-slate-500">{idea.notes}</p>
-          <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between text-xs text-slate-400"><span>{idea.createdBy}</span><span className="flex items-center gap-1"><Link2 className="size-3.5" /> {idea.kind}</span></div>
-        </article>)}
-      </section>
-    </div>
+    <PageHeading eyebrow="Creative pipeline" title="Idea bank" body="Shape rough post angles, references, and supporting material before they become drafts." controls={<div className="flex gap-2"><Button variant="outline" onClick={() => setReferenceOpen(true)}><Images /> Add reference</Button><Button onClick={() => void onCreate("Idea")} className="bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New idea</Button></div>} />
+    <section aria-label="Idea board" className="overflow-hidden rounded-xl border border-white/10 bg-[#0d0d0d]">
+      <div className="flex flex-col gap-3 border-b border-white/10 p-4 xl:flex-row xl:items-center">
+        <div className="flex flex-wrap gap-1 rounded-lg bg-black p-1" aria-label="Filter idea cards">{["All", "Ideas", "References", "Linked"].map((item) => <Button key={item} size="sm" variant={filter === item ? "default" : "ghost"} onClick={() => setFilter(item)} className={filter === item ? "bg-[#b11226]" : ""}>{item}</Button>)}</div>
+        <div className="relative min-w-56 flex-1 xl:ml-auto xl:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/35" /><Input value={localQuery} onChange={(event) => setLocalQuery(event.target.value)} placeholder="Search ideas" className="pl-9" /></div>
+        <Button variant="outline" size="sm" onClick={() => setZoom(.8)}><Maximize2 /> Fit</Button>
+        <div className="flex items-center rounded-lg border border-white/10"><Button variant="ghost" size="icon" onClick={() => setZoom((value) => Math.max(.6, value - .1))} aria-label="Zoom out"><ZoomOut /></Button><span className="w-12 text-center text-xs text-white/55">{Math.round(zoom * 100)}%</span><Button variant="ghost" size="icon" onClick={() => setZoom((value) => Math.min(1.2, value + .1))} aria-label="Zoom in"><ZoomIn /></Button></div>
+      </div>
+      <div className="min-h-[520px] overflow-auto bg-black/30 p-5 md:p-8">
+        {connectSource && <div className="mb-4 rounded-lg border border-[#b11226]/50 bg-[#b11226]/10 px-4 py-3 text-sm">Connecting <strong>{connectSource.title}</strong> — choose another card.</div>}
+        {visible.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3" style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: `${100 / zoom}%` }}>{visible.map((idea) => <IdeaCard key={idea.id} idea={idea} media={media} connections={connectionCount(idea)} connecting={connectSource?.id === idea.id} onConnect={() => connect(idea)} onUpdate={onUpdate} onDelete={onDelete} />)}</div> : <div className="grid min-h-[400px] place-items-center text-center"><div><Lightbulb className="mx-auto size-8 text-white/25" /><p className="mt-4 font-semibold">No cards in this view</p><Button onClick={() => void onCreate("Idea")} className="mt-4 bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New idea</Button></div></div>}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-4 py-3 text-xs text-white/40"><span>{ideas.length} cards · {ideas.filter((idea) => idea.kind === "Reference").length} references</span><span>Choose a link handle, then another card · changes save automatically</span></div>
+    </section>
+    <Sheet open={referenceOpen} onOpenChange={setReferenceOpen}><SheetContent side="bottom" className="max-h-[82vh] overflow-y-auto rounded-t-3xl border-white/15"><SheetHeader><SheetTitle>Add a reference card</SheetTitle><SheetDescription>Choose an image or video from the Content Bank, or upload a new one.</SheetDescription></SheetHeader><div className="mt-5"><label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#b11226] px-4 py-2 text-sm font-semibold text-white hover:bg-[#8f0d1e]"><Upload className="size-4" /> Upload media<input type="file" accept="image/*,video/*" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void onUploadReference(file).then(() => setReferenceOpen(false)); }} /></label></div>{media.length ? <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">{media.map((item) => <button key={item.id} onClick={() => void onCreate("Reference", item).then(() => setReferenceOpen(false))} className="rounded-xl border border-white/10 bg-white/5 p-2 text-left hover:border-[#b11226]"><MediaPreview item={item} className="aspect-square w-full rounded-lg" /><p className="mt-2 truncate text-xs font-medium">{item.filename}</p><span className="mt-1 block text-xs text-[#b11226]">Add card</span></button>)}</div> : <p className="mt-6 rounded-xl border border-dashed border-white/15 p-6 text-center text-sm text-white/45">No Content Bank media yet.</p>}</SheetContent></Sheet>
   </>;
+}
+
+function IdeaCard({ idea, media, connections, connecting, onConnect, onUpdate, onDelete }: { idea: Idea; media: Media[]; connections: number; connecting: boolean; onConnect: () => void; onUpdate: (idea: Idea, changes: Partial<Idea>) => Promise<void>; onDelete: (idea: Idea) => void }) {
+  const [title, setTitle] = useState(idea.title);
+  const [notes, setNotes] = useState(idea.notes);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  useEffect(() => { setTitle(idea.title); setNotes(idea.notes); }, [idea.title, idea.notes]);
+  const asset = idea.mediaId ? media.find((item) => item.id === idea.mediaId) : undefined;
+  const save = () => { if (title !== idea.title || notes !== idea.notes) void onUpdate(idea, { title: title.trim() || "Untitled idea", notes }); };
+  return <article className={`relative min-h-64 rounded-xl border bg-[#0d0d0d] p-4 shadow-xl transition ${connecting ? "border-[#b11226] ring-2 ring-[#b11226]/30" : "border-white/10"}`}>
+    <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={onConnect} aria-label={`Connect ${idea.title} to another card`} title="Connect card"><Link2 className="size-4" /></Button><Badge className="border-0 bg-[#b11226]">{idea.kind.toUpperCase()}</Badge><div className="relative ml-auto"><Button variant="ghost" size="icon" onClick={() => setActionsOpen((value) => !value)} aria-label="Idea actions"><MoreHorizontal /></Button>{actionsOpen && <button onClick={() => onDelete(idea)} className="absolute right-0 top-10 z-10 flex w-32 items-center gap-2 rounded-lg border border-white/10 bg-[#171717] px-3 py-2 text-sm text-red-400 shadow-xl"><Trash2 className="size-4" /> Delete</button>}</div></div>
+    <Input value={title} onChange={(event) => setTitle(event.target.value)} onBlur={save} aria-label="Idea title" className="mt-4 border-0 bg-transparent px-0 text-lg font-semibold shadow-none" />
+    <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={save} aria-label="Idea notes" placeholder="Add notes" className="mt-2 min-h-24 resize-none border-0 bg-transparent px-0 shadow-none" />
+    {asset && <MediaPreview item={asset} className="mt-3 aspect-video w-full rounded-lg" />}
+    <div className="mt-4 flex items-center justify-between text-xs text-white/40"><span>{idea.createdBy}</span><span>{connections ? `${connections} connection${connections === 1 ? "" : "s"}` : "Unconnected"}</span></div>
+  </article>;
 }
 
 function CreatorsView({ creators, selected, onSelect, onDelete }: { creators: Creator[]; selected: Creator | null; onSelect: (creator: Creator) => void; onDelete: (creator: Creator) => void }) {

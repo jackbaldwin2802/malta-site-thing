@@ -29,6 +29,13 @@
       "when": 1789706595378,
       "tag": "0003_third_tempest",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789708676074,
+      "tag": "0004_thin_baron_strucker",
+      "breakpoints": true
     }
   ]
 }

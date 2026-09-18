@@ -44,6 +44,8 @@ export const ideas = sqliteTable("ideas", {
   title: text("title").notNull(),
   notes: text("notes").notNull().default(""),
   color: text("color").notNull().default("coral"),
+  mediaId: text("media_id"),
+  linkedTo: text("linked_to"),
   createdBy: text("created_by").notNull(),
   createdAt: text("created_at").notNull(),
 }, (table) => [index("idx_ideas_kind").on(table.kind)]);

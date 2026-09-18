@@ -50,8 +50,8 @@ export async function POST(request: Request) {
     } else if (entity === "idea") {
       const title = String(body.title ?? "").trim();
       if (!title) return Response.json({ error: "Idea title is required." }, { status: 400 });
-      await db().prepare("INSERT INTO ideas (id,kind,title,notes,color,created_by,created_at) VALUES (?,?,?,?,?,?,?)")
-        .bind(id, String(body.kind ?? "Idea"), title, String(body.notes ?? ""), String(body.color ?? "coral"), owner, now).run();
+      await db().prepare("INSERT INTO ideas (id,kind,title,notes,color,media_id,linked_to,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)")
+        .bind(id, String(body.kind ?? "Idea"), title, String(body.notes ?? ""), String(body.color ?? "coral"), String(body.mediaId ?? "") || null, null, owner, now).run();
     } else if (entity === "creator") {
       const name = String(body.name ?? "").trim();
       if (!name) return Response.json({ error: "Creator name is required." }, { status: 400 });
@@ -77,7 +77,7 @@ export async function PATCH(request: Request) {
       if (!allowedStatuses.has(status)) return Response.json({ error: "Invalid workflow status." }, { status: 400 });
       await db().prepare("UPDATE posts SET status = ? WHERE id = ?").bind(status, id).run();
     } else if (entity === "idea") {
-      await db().prepare("UPDATE ideas SET title = ?, notes = ? WHERE id = ?").bind(String(body.title ?? ""), String(body.notes ?? ""), id).run();
+      await db().prepare("UPDATE ideas SET title = ?, notes = ?, linked_to = ? WHERE id = ?").bind(String(body.title ?? ""), String(body.notes ?? ""), String(body.linkedTo ?? "") || null, id).run();
     } else if (entity === "creator") {
       await db().prepare("UPDATE creators SET status = ?, next_action = ? WHERE id = ?").bind(String(body.status ?? "Prospect"), String(body.nextAction ?? ""), id).run();
     } else {
@@ -101,7 +101,10 @@ export async function DELETE(request: Request) {
       if (post?.media_id) statements.push(db().prepare("UPDATE media_assets SET used_count = MAX(used_count - 1, 0) WHERE id = ?").bind(post.media_id));
       await db().batch(statements);
     } else if (entity === "idea") {
-      await db().prepare("DELETE FROM ideas WHERE id = ?").bind(id).run();
+      await db().batch([
+        db().prepare("UPDATE ideas SET linked_to = NULL WHERE linked_to = ?").bind(id),
+        db().prepare("DELETE FROM ideas WHERE id = ?").bind(id),
+      ]);
     } else if (entity === "creator") {
       await db().prepare("DELETE FROM creators WHERE id = ?").bind(id).run();
     } else {
