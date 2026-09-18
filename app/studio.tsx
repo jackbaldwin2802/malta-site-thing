@@ -163,8 +163,8 @@ export function MaltaStudio() {
 
         <main className="min-h-[calc(100vh-4rem)] overflow-x-hidden p-4 md:p-7">
           <div className="mx-auto max-w-[1500px]">
-            {active === "Calendar" && (posts.length ? <CalendarView posts={filteredPosts} onSelect={setSelectedPost} /> : <EmptyView eyebrow="Publishing" title="Nothing scheduled" body="Your @malta calendar is clear. Create a post when the next hook is ready." action="Create post" onAction={() => setModal("post")} />)}
-            {active === "Content bank" && (media.length ? <ContentView media={filteredMedia} allMedia={media} filter={mediaFilter} onFilter={setMediaFilter} onSelect={setSelectedMedia} /> : <EmptyView eyebrow="Content bank" title="No media yet" body="Drop in the first image or clip. Everything uploaded here stays ready for the next @malta post." action="Upload media" onAction={() => setModal("upload")} />)}
+            {active === "Calendar" && <CalendarView posts={filteredPosts} onSelect={setSelectedPost} onCreate={() => setModal("post")} />}
+            {active === "Content bank" && <ContentView media={filteredMedia} allMedia={media} filter={mediaFilter} onFilter={setMediaFilter} onSelect={setSelectedMedia} onUpload={() => setModal("upload")} query={query} onQuery={setQuery} />}
             {active === "Idea bank" && (ideas.length ? <IdeasView ideas={ideas.filter((i) => `${i.title} ${i.notes}`.toLowerCase().includes(query.toLowerCase()))} /> : <EmptyView eyebrow="Idea bank" title="No ideas saved" body="Save the rough hook now. Turn it into a post later." action="Add idea" onAction={() => setModal("idea")} />)}
             {active === "Creators" && (creators.length ? <CreatorsView creators={creators.filter((c) => `${c.name} ${c.handle} ${c.specialties.join(" ")}`.toLowerCase().includes(query.toLowerCase()))} selected={selectedCreator} onSelect={setSelectedCreator} /> : <EmptyView eyebrow="Creators" title="No creators added" body="Add the people you brief, shoot with, or contact for the page." action="Add creator" onAction={() => setModal("creator")} />)}
           </div>
@@ -191,13 +191,78 @@ function EmptyView({ eyebrow, title, body, action, onAction }: { eyebrow: string
   return <><PageHeading eyebrow={eyebrow} title={title} body={body} /><section className="grid min-h-[520px] place-items-center rounded-[22px] border border-dashed border-white/15 bg-[#0d0d0d] px-6 text-center"><div className="max-w-md"><div className="mx-auto grid size-14 place-items-center rounded-full bg-[#b11226]"><Plus className="size-6" /></div><h2 className="mt-6 text-2xl font-bold tracking-[-0.035em] text-white">Start with the next one.</h2><p className="mt-2 text-base leading-7 text-white/55">No filler. No demo content. Just the real @malta workflow.</p><Button onClick={onAction} className="mt-6 bg-[#b11226] text-white hover:bg-[#8f0d1e]"><Plus /> {action}</Button></div></section></>;
 }
 
-function CalendarView({ posts, onSelect }: { posts: Post[]; onSelect: (post: Post) => void }) {
+function CalendarView({ posts, onSelect, onCreate }: { posts: Post[]; onSelect: (post: Post) => void; onCreate: () => void }) {
   const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  return <><PageHeading eyebrow="September content" title="This week in Malta" body="Plan, review, and keep every Instagram post moving." controls={<div className="flex items-center gap-2"><Button variant="outline" size="icon" aria-label="Previous week"><ChevronLeft /></Button><Button variant="outline" className="min-w-36 bg-white">Sep 14–20</Button><Button variant="outline" size="icon" aria-label="Next week"><ChevronRight /></Button></div>} /><section aria-label="Workflow summary" className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4"><SummaryCard label="Posts this week" value={posts.length} color="#0a7894" /><SummaryCard label="In review" value={posts.filter((p) => p.status === "In review").length} color="#d18a00" /><SummaryCard label="Changes needed" value={posts.filter((p) => p.status === "Changes requested").length} color="#df5c4a" /><SummaryCard label="Ready to publish" value={posts.filter((p) => p.status === "Approved").length} color="#27836b" /></section><section aria-label="Content calendar" className="overflow-x-auto rounded-[24px] border border-slate-200/80 bg-white shadow-[0_18px_60px_rgba(7,29,43,.06)]"><div className="grid min-w-[980px] grid-cols-7 divide-x divide-slate-200/70">{weekDays.map((day, index) => { const post = posts.find((p) => scheduledDay(p.scheduledAt) === (index + 1) % 7) ?? posts[index]; return <div key={day} className="min-h-[420px] p-3"><div className="flex items-baseline justify-between border-b border-slate-100 pb-3"><span className="text-sm font-medium text-slate-500">{day}</span><span className="text-2xl font-semibold text-[#071d2b]">{14 + index}</span></div>{post ? <button onClick={() => onSelect(post)} className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a7894]"><div className={`mt-3 aspect-[4/5] rounded-2xl p-3 ${toneClass(post.tone)}`}><Badge className="border-0 bg-white/90 text-[#071d2b] shadow-sm">{post.format}</Badge><div className="mt-24 rounded-xl bg-white/88 p-3 backdrop-blur"><p className="text-xs font-medium text-slate-500">{scheduledTime(post.scheduledAt)}</p><p className="mt-1 text-sm font-semibold leading-snug text-[#071d2b]">{post.title}</p></div></div><div className="mt-3 flex items-center justify-between"><span className="text-xs text-slate-500">{post.location}</span><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(post.status)}`}>{post.status}</span></div></button> : <div className="mt-3 grid aspect-[4/5] place-items-center rounded-2xl border border-dashed border-slate-200 text-sm text-slate-400">Open day</div>}</div>; })}</div></section></>;
+  const preview = posts[0];
+  const inReview = posts.filter((post) => post.status === "In review").length;
+  const changes = posts.filter((post) => post.status === "Changes requested").length;
+  const approved = posts.filter((post) => post.status === "Approved").length;
+
+  return <>
+    <div className="mb-5 flex flex-wrap items-center gap-2">
+      <Button variant="outline" size="icon" aria-label="Previous week"><ChevronLeft /></Button>
+      <div className="min-w-32 px-3 text-center text-sm font-semibold">Sep 14–20</div>
+      <Button variant="outline" size="icon" aria-label="Next week"><ChevronRight /></Button>
+      <div className="ml-2 flex rounded-lg border border-white/10 bg-[#0d0d0d] p-1"><Button size="sm" className="bg-[#b11226]">Week</Button><Button size="sm" variant="ghost">Month</Button></div>
+      <Button variant="outline" className="ml-auto">Today</Button>
+      <Button onClick={onCreate} className="bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New post</Button>
+    </div>
+
+    <section aria-label="Workflow summary" className="mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10 lg:grid-cols-4">
+      {[['Week', posts.length], ['In review', inReview], ['Changes requested', changes], ['Approved', approved]].map(([label, value]) => <button key={String(label)} className="flex items-center justify-between bg-[#0d0d0d] px-4 py-3 text-left hover:bg-white/5"><span className="text-sm text-white/55">{label}</span><strong className="text-lg text-white">{value}</strong></button>)}
+    </section>
+
+    <section aria-label="Operations inbox" className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10 lg:grid-cols-4">
+      {[['Awaiting review', inReview], ['Approved, unscheduled', approved], ['Open days', Math.max(0, 7 - posts.length)], ['Published this period', 0]].map(([label, value]) => <div key={String(label)} className="bg-black px-4 py-3"><p className="text-xs uppercase tracking-[0.12em] text-white/35">{label}</p><p className="mt-1 text-xl font-semibold">{value}</p></div>)}
+    </section>
+
+    <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
+      <section aria-label="Calendar" className="overflow-x-auto rounded-xl border border-white/10 bg-[#0d0d0d]">
+        <div className="grid min-w-[980px] grid-cols-7 divide-x divide-white/10">
+          {weekDays.map((day, index) => {
+            const post = posts.find((item) => scheduledDay(item.scheduledAt) === (index + 1) % 7) ?? posts[index];
+            return <div key={day} className="min-h-[510px] p-3">
+              <div className="border-b border-white/10 pb-3 text-sm font-semibold"><span>{day}</span><span className="ml-1 text-white/35">Sep {14 + index}</span></div>
+              {post ? <button onClick={() => onSelect(post)} className="mt-3 w-full rounded-lg border border-white/10 bg-black p-2 text-left transition hover:border-[#b11226]"><div className={`aspect-square rounded-md ${toneClass(post.tone)}`} /><p className="mt-3 line-clamp-3 text-sm font-semibold leading-5">{post.caption || post.title}</p><p className="mt-3 text-xs text-white/40">{scheduledTime(post.scheduledAt)} · {post.assignee}</p></button> : <button onClick={onCreate} className="mt-3 flex min-h-56 w-full flex-col items-center justify-center rounded-lg border border-dashed border-white/15 text-white/35 transition hover:border-[#b11226] hover:text-white"><Plus className="mb-2 size-4" /><span className="text-sm">Open day</span></button>}
+            </div>;
+          })}
+        </div>
+      </section>
+
+      <aside aria-label="Post preview" className="rounded-xl border border-white/10 bg-[#0d0d0d] p-4">
+        <div className="flex items-center justify-between border-b border-white/10 pb-3"><div><p className="text-sm font-semibold">Instagram preview</p><p className="text-xs text-white/40">Select a post to review</p></div><Instagram className="size-5 text-[#b11226]" /></div>
+        {preview ? <button onClick={() => onSelect(preview)} className="mt-4 w-full text-left"><div className={`aspect-[4/5] rounded-lg ${toneClass(preview.tone)}`} /><p className="mt-3 text-sm leading-6">{preview.caption}</p><p className="mt-2 text-xs text-white/40">@malta · {scheduledTime(preview.scheduledAt)}</p></button> : <div className="grid min-h-[390px] place-items-center text-center"><div><CalendarDays className="mx-auto size-7 text-white/25" /><p className="mt-3 text-sm font-medium">No post selected</p><p className="mt-1 text-xs text-white/40">New posts will preview here.</p></div></div>}
+      </aside>
+    </div>
+  </>;
 }
 
-function ContentView({ media, allMedia, filter, onFilter, onSelect }: { media: Media[]; allMedia: Media[]; filter: string; onFilter: (value: string) => void; onSelect: (item: Media) => void }) {
-  return <><PageHeading eyebrow="Shared library" title="Content bank" body="Keep reusable footage, captions, and review stages in one place." /><section aria-label="Content bank summary" className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4"><SummaryCard label="Total assets" value={allMedia.length} color="#0a7894" /><SummaryCard label="Approved" value={allMedia.filter((m) => m.status === "Approved").length} color="#27836b" /><SummaryCard label="In review" value={allMedia.filter((m) => m.status === "In review").length} color="#d18a00" /><SummaryCard label="Changes requested" value={allMedia.filter((m) => m.status === "Changes requested").length} color="#df5c4a" /></section><div className="mb-5 overflow-x-auto"><Tabs value={filter} onValueChange={onFilter}><TabsList className="bg-white shadow-sm">{["All", "Approved", "In review", "Changes requested", "Draft"].map((tab) => <TabsTrigger key={tab} value={tab}>{tab}{tab === "All" ? ` ${allMedia.length}` : ""}</TabsTrigger>)}</TabsList></Tabs></div><section aria-label="Media assets" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{media.map((item) => <button key={item.id} onClick={() => onSelect(item)} className="group overflow-hidden rounded-[22px] border border-slate-200/80 bg-white text-left shadow-[0_12px_35px_rgba(7,29,43,.04)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(7,29,43,.09)]"><div className={`relative aspect-[4/3] ${toneClass(item.tone)} p-4`}>{item.url && item.mimeType.startsWith("image/") ? <img src={item.url} alt="" className="absolute inset-0 size-full object-cover" /> : <div className="grid size-full place-items-center text-white/85">{item.mimeType.startsWith("video/") ? <Sparkles className="size-9" /> : <ImageIcon className="size-9" />}</div>}<Badge className={`absolute left-3 top-3 border-0 ${statusClass(item.status)}`}>{item.status}</Badge></div><div className="p-4"><p className="truncate font-semibold text-[#071d2b]">{item.filename}</p><p className="mt-1 line-clamp-2 min-h-10 text-sm leading-5 text-slate-500">{item.caption || "No reusable caption"}</p><div className="mt-4 flex items-center justify-between text-xs text-slate-400"><span>{item.uploadedBy}</span><span>{item.usedCount ? `Used in ${item.usedCount} post${item.usedCount > 1 ? "s" : ""}` : "Unused"}</span></div></div></button>)}</section></>;
+function ContentView({ media, allMedia, filter, onFilter, onSelect, onUpload, query, onQuery }: { media: Media[]; allMedia: Media[]; filter: string; onFilter: (value: string) => void; onSelect: (item: Media) => void; onUpload: () => void; query: string; onQuery: (value: string) => void }) {
+  const inReview = allMedia.filter((item) => item.status === "In review").length;
+  const changes = allMedia.filter((item) => item.status === "Changes requested").length;
+  const counts: Record<string, number> = { All: allMedia.length, Approved: allMedia.filter((item) => item.status === "Approved").length, "In review": inReview, "Changes requested": changes, Draft: allMedia.filter((item) => item.status === "Draft").length, Archived: 0 };
+
+  return <>
+    <PageHeading eyebrow="Shared library" title="Content bank" body="Keep reusable media, captions, and review stages in one shared library." controls={<div className="flex gap-2"><Button variant="outline">Import</Button><Button onClick={onUpload} className="bg-[#b11226] hover:bg-[#8f0d1e]"><Upload /> Upload media</Button></div>} />
+    <section aria-label="Content bank summary" className="mb-5 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10"><SummaryCard label="Total assets" value={allMedia.length} color="#b11226" /><SummaryCard label="Needs review" value={inReview} color="#b11226" /><SummaryCard label="Changes requested" value={changes} color="#b11226" /></section>
+
+    <section aria-label="Content bank" className="overflow-hidden rounded-xl border border-white/10 bg-[#0d0d0d]">
+      <div className="border-b border-white/10 p-4 md:p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div><h2 className="text-lg font-semibold">Media</h2><p className="mt-1 text-sm text-white/45">Every image and video in the shared library</p></div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-white/55"><input type="checkbox" className="accent-[#b11226]" /> Malta team</label>
+            <Button variant="outline">Sort: Date created</Button>
+            <div className="relative min-w-64 flex-1"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/35" /><Input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Search content bank" className="pl-9" /></div>
+          </div>
+        </div>
+        <div className="mt-4 overflow-x-auto"><Tabs value={filter} onValueChange={onFilter}><TabsList className="h-auto bg-black p-1">{["All", "Approved", "In review", "Changes requested", "Draft", "Archived"].map((tab) => <TabsTrigger key={tab} value={tab} className="gap-2 whitespace-nowrap">{tab}<span className="text-xs text-white/35">{counts[tab]}</span></TabsTrigger>)}</TabsList></Tabs></div>
+      </div>
+
+      {media.length ? <div className="grid gap-px bg-white/10 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{media.map((item) => <button key={item.id} onClick={() => onSelect(item)} className="group bg-[#0d0d0d] p-3 text-left transition hover:bg-white/5"><div className={`relative aspect-[4/3] overflow-hidden rounded-lg ${toneClass(item.tone)}`}>{item.url && item.mimeType.startsWith("image/") ? <img src={item.url} alt="" className="absolute inset-0 size-full object-cover" /> : <div className="grid size-full place-items-center text-white/70">{item.mimeType.startsWith("video/") ? <Sparkles className="size-8" /> : <ImageIcon className="size-8" />}</div>}<Badge className={`absolute right-2 top-2 border-0 ${statusClass(item.status)}`}>{item.status}</Badge></div><p className="mt-3 truncate text-sm font-semibold">{item.filename}</p><p className="mt-1 line-clamp-2 min-h-10 text-sm leading-5 text-white/45">{item.caption || "No reusable caption"}</p><div className="mt-3 flex justify-between text-xs text-white/35"><span>{item.uploadedBy}</span><span>{item.usedCount ? `Used in ${item.usedCount}` : "Unused"}</span></div></button>)}</div> : <div className="grid min-h-[420px] place-items-center px-6 text-center"><div><Images className="mx-auto size-8 text-white/25" /><p className="mt-4 text-base font-semibold">No media in this view</p><p className="mt-1 text-sm text-white/40">Upload the first image or video for @malta.</p><Button onClick={onUpload} className="mt-5 bg-[#b11226] hover:bg-[#8f0d1e]"><Upload /> Upload media</Button></div></div>}
+      <button onClick={onUpload} className="w-full border-t border-dashed border-white/15 px-4 py-4 text-center text-sm text-white/35 hover:text-white">Drop media to upload</button>
+    </section>
+  </>;
 }
 
 function IdeasView({ ideas }: { ideas: Idea[] }) {
