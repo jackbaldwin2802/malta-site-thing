@@ -3,7 +3,7 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Clock3, Compass, Download, ExternalLink,
-  Image as ImageIcon, Images, Camera as Instagram, Lightbulb, Link2, MessageCircle,
+  Image as ImageIcon, Images, Camera as Instagram, Lightbulb, MessageCircle,
   Maximize2, MoreHorizontal, Plus, Search, Sparkles, Trash2, Upload, UserRound, Users, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -339,52 +339,43 @@ function IdeasView({ ideas, media, initialQuery, onCreate, onUpdate, onUploadRef
   const [localQuery, setLocalQuery] = useState(initialQuery);
   const [zoom, setZoom] = useState(.8);
   const [referenceOpen, setReferenceOpen] = useState(false);
-  const [connectSource, setConnectSource] = useState<Idea | null>(null);
   useEffect(() => setLocalQuery(initialQuery), [initialQuery]);
-  const connectionCount = (idea: Idea) => Number(Boolean(idea.linkedTo)) + ideas.filter((item) => item.linkedTo === idea.id).length;
   const visible = ideas.filter((idea) => {
     if (filter === "Ideas" && idea.kind !== "Idea") return false;
     if (filter === "References" && idea.kind !== "Reference") return false;
-    if (filter === "Linked" && connectionCount(idea) === 0) return false;
     return `${idea.title} ${idea.notes}`.toLowerCase().includes(localQuery.toLowerCase());
   });
-  const connect = (idea: Idea) => {
-    if (!connectSource) { setConnectSource(idea); return; }
-    if (connectSource.id === idea.id) { setConnectSource(null); return; }
-    void onUpdate(connectSource, { linkedTo: idea.id }); setConnectSource(null);
-  };
   return <>
     <PageHeading eyebrow="Creative pipeline" title="Idea bank" body="Shape rough post angles, references, and supporting material before they become drafts." controls={<div className="flex gap-2"><Button variant="outline" onClick={() => setReferenceOpen(true)}><Images /> Add reference</Button><Button onClick={() => void onCreate("Idea")} className="bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New idea</Button></div>} />
     <section aria-label="Idea board" className="overflow-hidden rounded-xl border border-white/10 bg-[#0d0d0d]">
       <div className="flex flex-col gap-3 border-b border-white/10 p-4 xl:flex-row xl:items-center">
-        <div className="flex flex-wrap gap-1 rounded-lg bg-black p-1" aria-label="Filter idea cards">{["All", "Ideas", "References", "Linked"].map((item) => <Button key={item} size="sm" variant={filter === item ? "default" : "ghost"} onClick={() => setFilter(item)} className={filter === item ? "bg-[#b11226]" : ""}>{item}</Button>)}</div>
+        <div className="flex flex-wrap gap-1 rounded-lg bg-black p-1" aria-label="Filter idea cards">{["All", "Ideas", "References"].map((item) => <Button key={item} size="sm" variant={filter === item ? "default" : "ghost"} onClick={() => setFilter(item)} className={filter === item ? "bg-[#b11226]" : ""}>{item}</Button>)}</div>
         <div className="relative min-w-56 flex-1 xl:ml-auto xl:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/35" /><Input value={localQuery} onChange={(event) => setLocalQuery(event.target.value)} placeholder="Search ideas" className="pl-9" /></div>
         <Button variant="outline" size="sm" onClick={() => setZoom(.8)}><Maximize2 /> Fit</Button>
         <div className="flex items-center rounded-lg border border-white/10"><Button variant="ghost" size="icon" onClick={() => setZoom((value) => Math.max(.6, value - .1))} aria-label="Zoom out"><ZoomOut /></Button><span className="w-12 text-center text-xs text-white/55">{Math.round(zoom * 100)}%</span><Button variant="ghost" size="icon" onClick={() => setZoom((value) => Math.min(1.2, value + .1))} aria-label="Zoom in"><ZoomIn /></Button></div>
       </div>
       <div className="min-h-[520px] overflow-auto bg-black/30 p-5 md:p-8">
-        {connectSource && <div className="mb-4 rounded-lg border border-[#b11226]/50 bg-[#b11226]/10 px-4 py-3 text-sm">Connecting <strong>{connectSource.title}</strong> — choose another card.</div>}
-        {visible.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3" style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: `${100 / zoom}%` }}>{visible.map((idea) => <IdeaCard key={idea.id} idea={idea} media={media} connections={connectionCount(idea)} connecting={connectSource?.id === idea.id} onConnect={() => connect(idea)} onUpdate={onUpdate} onDelete={onDelete} />)}</div> : <div className="grid min-h-[400px] place-items-center text-center"><div><Lightbulb className="mx-auto size-8 text-white/25" /><p className="mt-4 font-semibold">No cards in this view</p><Button onClick={() => void onCreate("Idea")} className="mt-4 bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New idea</Button></div></div>}
+        {visible.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3" style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: `${100 / zoom}%` }}>{visible.map((idea) => <IdeaCard key={idea.id} idea={idea} media={media} onUpdate={onUpdate} onDelete={onDelete} />)}</div> : <div className="grid min-h-[400px] place-items-center text-center"><div><Lightbulb className="mx-auto size-8 text-white/25" /><p className="mt-4 font-semibold">No cards in this view</p><Button onClick={() => void onCreate("Idea")} className="mt-4 bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New idea</Button></div></div>}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-4 py-3 text-xs text-white/40"><span>{ideas.length} cards · {ideas.filter((idea) => idea.kind === "Reference").length} references</span><span>Choose a link handle, then another card · changes save automatically</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-4 py-3 text-xs text-white/40"><span>{ideas.length} cards · {ideas.filter((idea) => idea.kind === "Reference").length} references</span><span>Changes save automatically</span></div>
     </section>
     <Sheet open={referenceOpen} onOpenChange={setReferenceOpen}><SheetContent side="bottom" className="max-h-[82vh] overflow-y-auto rounded-t-3xl border-white/15"><SheetHeader><SheetTitle>Add a reference card</SheetTitle><SheetDescription>Choose an image or video from the Content Bank, or upload a new one.</SheetDescription></SheetHeader><div className="mt-5"><label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#b11226] px-4 py-2 text-sm font-semibold text-white hover:bg-[#8f0d1e]"><Upload className="size-4" /> Upload media<input type="file" accept="image/*,video/*" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void onUploadReference(file).then(() => setReferenceOpen(false)); }} /></label></div>{media.length ? <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">{media.map((item) => <button key={item.id} onClick={() => void onCreate("Reference", item).then(() => setReferenceOpen(false))} className="rounded-xl border border-white/10 bg-white/5 p-2 text-left hover:border-[#b11226]"><MediaPreview item={item} className="aspect-square w-full rounded-lg" /><p className="mt-2 truncate text-xs font-medium">{item.filename}</p><span className="mt-1 block text-xs text-[#b11226]">Add card</span></button>)}</div> : <p className="mt-6 rounded-xl border border-dashed border-white/15 p-6 text-center text-sm text-white/45">No Content Bank media yet.</p>}</SheetContent></Sheet>
   </>;
 }
 
-function IdeaCard({ idea, media, connections, connecting, onConnect, onUpdate, onDelete }: { idea: Idea; media: Media[]; connections: number; connecting: boolean; onConnect: () => void; onUpdate: (idea: Idea, changes: Partial<Idea>) => Promise<void>; onDelete: (idea: Idea) => void }) {
+function IdeaCard({ idea, media, onUpdate, onDelete }: { idea: Idea; media: Media[]; onUpdate: (idea: Idea, changes: Partial<Idea>) => Promise<void>; onDelete: (idea: Idea) => void }) {
   const [title, setTitle] = useState(idea.title);
   const [notes, setNotes] = useState(idea.notes);
   const [actionsOpen, setActionsOpen] = useState(false);
   useEffect(() => { setTitle(idea.title); setNotes(idea.notes); }, [idea.title, idea.notes]);
   const asset = idea.mediaId ? media.find((item) => item.id === idea.mediaId) : undefined;
   const save = () => { if (title !== idea.title || notes !== idea.notes) void onUpdate(idea, { title: title.trim() || "Untitled idea", notes }); };
-  return <article className={`relative min-h-64 rounded-xl border bg-[#0d0d0d] p-4 shadow-xl transition ${connecting ? "border-[#b11226] ring-2 ring-[#b11226]/30" : "border-white/10"}`}>
-    <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={onConnect} aria-label={`Connect ${idea.title} to another card`} title="Connect card"><Link2 className="size-4" /></Button><Badge className="border-0 bg-[#b11226]">{idea.kind.toUpperCase()}</Badge><div className="relative ml-auto"><Button variant="ghost" size="icon" onClick={() => setActionsOpen((value) => !value)} aria-label="Idea actions"><MoreHorizontal /></Button>{actionsOpen && <button onClick={() => onDelete(idea)} className="absolute right-0 top-10 z-10 flex w-32 items-center gap-2 rounded-lg border border-white/10 bg-[#171717] px-3 py-2 text-sm text-red-400 shadow-xl"><Trash2 className="size-4" /> Delete</button>}</div></div>
+  return <article className="relative min-h-64 rounded-xl border border-white/10 bg-[#0d0d0d] p-4 shadow-xl transition">
+    <div className="flex items-center gap-2"><Badge className="border-0 bg-[#b11226]">{idea.kind.toUpperCase()}</Badge><div className="relative ml-auto"><Button variant="ghost" size="icon" onClick={() => setActionsOpen((value) => !value)} aria-label="Idea actions"><MoreHorizontal /></Button>{actionsOpen && <button onClick={() => onDelete(idea)} className="absolute right-0 top-10 z-10 flex w-32 items-center gap-2 rounded-lg border border-white/10 bg-[#171717] px-3 py-2 text-sm text-red-400 shadow-xl"><Trash2 className="size-4" /> Delete</button>}</div></div>
     <Input value={title} onChange={(event) => setTitle(event.target.value)} onBlur={save} aria-label="Idea title" className="mt-4 border-0 bg-transparent px-0 text-lg font-semibold shadow-none" />
     <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={save} aria-label="Idea notes" placeholder="Add notes" className="mt-2 min-h-24 resize-none border-0 bg-transparent px-0 shadow-none" />
     {asset && <MediaPreview item={asset} className="mt-3 aspect-video w-full rounded-lg" />}
-    <div className="mt-4 flex items-center justify-between text-xs text-white/40"><span>{idea.createdBy}</span><span>{connections ? `${connections} connection${connections === 1 ? "" : "s"}` : "Unconnected"}</span></div>
+    <div className="mt-4 text-xs text-white/40">{idea.createdBy}</div>
   </article>;
 }
 
