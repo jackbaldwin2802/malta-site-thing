@@ -39,40 +39,12 @@ const nav = [
   { label: "Creators", icon: Users },
 ];
 
-const demoPosts: Post[] = [
-  { id: "p1", title: "The blue hour in Valletta", caption: "Valletta after the heat breaks. Save this route for your next slow evening in the city.", format: "Reel", status: "Approved", scheduledAt: "2026-09-14T10:00", location: "Valletta", tone: "sun", assignee: "Malta team" },
-  { id: "p2", title: "Three pastizzi spots locals love", caption: "Three flaky stops, one morning walk. Which filling wins?", format: "Carousel", status: "Draft", scheduledAt: "2026-09-15T12:30", location: "Rabat", tone: "sea", assignee: "Malta team" },
-  { id: "p3", title: "Golden Bay after the crowds", caption: "Come for the sunset, stay for the last quiet swim.", format: "Reel", status: "In review", scheduledAt: "2026-09-16T18:00", location: "Golden Bay", tone: "gold", assignee: "Malta team" },
-  { id: "p4", title: "Mdina doors, one colour story", caption: "The Silent City has a palette all its own.", format: "Carousel", status: "Changes requested", scheduledAt: "2026-09-17T09:15", location: "Mdina", tone: "stone", assignee: "Malta team" },
-  { id: "p5", title: "Weekend route: harbour to rooftop", caption: "Start by the water. End above the rooftops.", format: "Reel", status: "Approved", scheduledAt: "2026-09-18T17:45", location: "Three Cities", tone: "coral", assignee: "Malta team" },
-  { id: "p6", title: "Marsaxlokk market morning", caption: "Colour, boats, and a table by the harbour.", format: "Story", status: "Draft", scheduledAt: "2026-09-19T11:00", location: "Marsaxlokk", tone: "harbour", assignee: "Malta team" },
-  { id: "p7", title: "A quiet swim at St Peter’s Pool", caption: "One last jump before the weekend ends.", format: "Reel", status: "In review", scheduledAt: "2026-09-20T19:00", location: "St Peter’s Pool", tone: "pool", assignee: "Malta team" },
-];
+const demoPosts: Post[] = [];
+const demoMedia: Media[] = [];
+const demoIdeas: Idea[] = [];
+const demoCreators: Creator[] = [];
 
-const demoMedia: Media[] = [
-  { id: "m1", filename: "valletta-blue-hour.mp4", caption: "Slow pan from Strait Street into the harbour light", status: "Approved", mimeType: "video/mp4", uploadedBy: "Malta team", usedCount: 1, tone: "sun" },
-  { id: "m2", filename: "pastizzi-rabat.jpg", caption: "Ricotta, pea, and chicken pastizzi carousel", status: "Draft", mimeType: "image/jpeg", uploadedBy: "Malta team", usedCount: 0, tone: "sea" },
-  { id: "m3", filename: "golden-bay-sunset.mp4", caption: "Wide sunset swim shot", status: "In review", mimeType: "video/mp4", uploadedBy: "Malta team", usedCount: 1, tone: "gold" },
-  { id: "m4", filename: "mdina-door-set.jpg", caption: "Six door details for a colour-led carousel", status: "Changes requested", mimeType: "image/jpeg", uploadedBy: "Malta team", usedCount: 1, tone: "stone" },
-  { id: "m5", filename: "marsaxlokk-boats.jpg", caption: "Luzzu boats before the market opens", status: "Draft", mimeType: "image/jpeg", uploadedBy: "Malta team", usedCount: 0, tone: "harbour" },
-  { id: "m6", filename: "st-peters-pool-jump.mp4", caption: "Cliff jump with clean water entry", status: "In review", mimeType: "video/mp4", uploadedBy: "Malta team", usedCount: 1, tone: "pool" },
-];
-
-const demoIdeas: Idea[] = [
-  { id: "i1", kind: "Idea", title: "24 hours without a car", notes: "Ferry, bus, and walking route with realistic timings.", color: "sea", createdBy: "Malta team" },
-  { id: "i2", kind: "Reference", title: "Rooftop transition", notes: "Match-cut from ferry deck to Valletta rooftop at sunset.", color: "coral", createdBy: "Malta team" },
-  { id: "i3", kind: "Idea", title: "What €20 buys in Malta", notes: "Breakfast, swim stop, ferry, and dinner snack.", color: "gold", createdBy: "Malta team" },
-  { id: "i4", kind: "Reference", title: "Mdina ambient sound", notes: "Build a quiet reel around footsteps, bells, and shutters.", color: "stone", createdBy: "Malta team" },
-  { id: "i5", kind: "Idea", title: "Ask a fisherman", notes: "A recurring portrait and one-question series in Marsaxlokk.", color: "harbour", createdBy: "Malta team" },
-];
-
-const demoCreators: Creator[] = [
-  { id: "c1", name: "Elena Vella", handle: "@elenavella.films", specialties: ["Video editing", "UGC"], status: "Ready to brief", instagram: "https://instagram.com/", location: "Sliema", bio: "Fast, natural travel edits with strong location sound.", notes: "Best for walking routes and food stories.", nextAction: "Send Valletta reel brief" },
-  { id: "c2", name: "Kai Borg", handle: "@kaiborg.photo", specialties: ["Photography", "Architecture"], status: "In conversation", instagram: "https://instagram.com/", location: "Valletta", bio: "Architectural photography with a clean editorial eye.", notes: "Available for early morning shoots.", nextAction: "Confirm Mdina date" },
-  { id: "c3", name: "Maya Camilleri", handle: "@mayamakesmalta", specialties: ["Food", "Copywriting"], status: "Prospect", instagram: "https://instagram.com/", location: "Rabat", bio: "Food-first creator with warm, local storytelling.", notes: "Great fit for village bakeries.", nextAction: "Reach out by Instagram DM" },
-];
-
-const toneClass = (tone: string) => `tone-${["sun", "sea", "gold", "stone", "coral", "harbour", "pool"].includes(tone) ? tone : "sea"}`;
+const toneClass = (_tone: string) => "tone-crimson";
 const statusClass = (status: string) => status === "Approved" ? "status-approved" : status === "In review" ? "status-review" : status === "Changes requested" ? "status-changes" : "status-draft";
 const scheduledDay = (value: string) => new Date(`${value.slice(0, 10)}T12:00:00Z`).getUTCDay();
 const scheduledTime = (value: string) => {
@@ -88,7 +60,7 @@ export function MaltaStudio() {
   const [modal, setModal] = useState<Modal>(null);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
-  const [selectedCreator, setSelectedCreator] = useState<Creator | null>(demoCreators[0]);
+  const [selectedCreator, setSelectedCreator] = useState<Creator | null>(null);
   const [posts, setPosts] = useState(demoPosts);
   const [media, setMedia] = useState(demoMedia);
   const [ideas, setIdeas] = useState(demoIdeas);
@@ -181,9 +153,9 @@ export function MaltaStudio() {
   return (
     <SidebarProvider defaultOpen>
       <Sidebar collapsible="icon" className="border-r border-white/10 bg-[#071d2b] text-white">
-        <SidebarHeader className="p-4"><div className="flex items-center gap-3 px-1 py-2"><span className="grid size-10 place-items-center rounded-2xl bg-[#ff6b4a] shadow-[0_8px_30px_rgba(255,107,74,.28)]"><MapPin className="size-5" /></span><div className="group-data-[collapsible=icon]:hidden"><p className="text-lg font-semibold tracking-tight">@malta</p><p className="text-xs text-sky-100/55">Social studio</p></div></div></SidebarHeader>
+        <SidebarHeader className="p-4"><div className="flex items-center gap-3 px-1 py-2"><span className="grid size-10 place-items-center rounded-xl bg-[#b11226]"><MapPin className="size-5" /></span><div className="group-data-[collapsible=icon]:hidden"><p className="text-lg font-bold tracking-[-0.04em]">MALTA</p><p className="text-xs uppercase tracking-[0.18em] text-white/45">Content desk</p></div></div></SidebarHeader>
         <SidebarContent><SidebarGroup><SidebarGroupContent><SidebarMenu>{nav.map((item) => <SidebarMenuItem key={item.label}><SidebarMenuButton isActive={active === item.label} tooltip={item.label} onClick={() => { setActive(item.label); setQuery(""); }} className="h-11 text-sky-50/70 hover:bg-white/10 hover:text-white data-[active=true]:bg-[#ff6b4a] data-[active=true]:text-white"><item.icon /><span>{item.label}</span></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarGroupContent></SidebarGroup></SidebarContent>
-        <SidebarFooter className="p-4"><div className="rounded-2xl border border-white/10 bg-white/5 p-3 group-data-[collapsible=icon]:hidden"><p className="text-sm font-medium">Malta team</p><p className="mt-1 text-xs text-sky-100/50">Private workspace</p></div></SidebarFooter>
+        <SidebarFooter className="p-4"><div className="rounded-xl border border-white/10 bg-white/5 p-3 group-data-[collapsible=icon]:hidden"><p className="text-sm font-semibold">@malta</p><a href="https://www.instagram.com/malta/" target="_blank" rel="noreferrer" className="mt-1 block text-xs text-white/45">Open Instagram ↗</a></div></SidebarFooter>
       </Sidebar>
 
       <SidebarInset className="min-w-0 bg-[#f3f7f8]">
@@ -191,10 +163,10 @@ export function MaltaStudio() {
 
         <main className="min-h-[calc(100vh-4rem)] overflow-x-hidden p-4 md:p-7">
           <div className="mx-auto max-w-[1500px]">
-            {active === "Calendar" && <CalendarView posts={filteredPosts} onSelect={setSelectedPost} />}
-            {active === "Content bank" && <ContentView media={filteredMedia} allMedia={media} filter={mediaFilter} onFilter={setMediaFilter} onSelect={setSelectedMedia} />}
-            {active === "Idea bank" && <IdeasView ideas={ideas.filter((i) => `${i.title} ${i.notes}`.toLowerCase().includes(query.toLowerCase()))} />}
-            {active === "Creators" && <CreatorsView creators={creators.filter((c) => `${c.name} ${c.handle} ${c.specialties.join(" ")}`.toLowerCase().includes(query.toLowerCase()))} selected={selectedCreator} onSelect={setSelectedCreator} />}
+            {active === "Calendar" && (posts.length ? <CalendarView posts={filteredPosts} onSelect={setSelectedPost} /> : <EmptyView eyebrow="Publishing" title="Nothing scheduled" body="Your @malta calendar is clear. Create a post when the next hook is ready." action="Create post" onAction={() => setModal("post")} />)}
+            {active === "Content bank" && (media.length ? <ContentView media={filteredMedia} allMedia={media} filter={mediaFilter} onFilter={setMediaFilter} onSelect={setSelectedMedia} /> : <EmptyView eyebrow="Content bank" title="No media yet" body="Drop in the first image or clip. Everything uploaded here stays ready for the next @malta post." action="Upload media" onAction={() => setModal("upload")} />)}
+            {active === "Idea bank" && (ideas.length ? <IdeasView ideas={ideas.filter((i) => `${i.title} ${i.notes}`.toLowerCase().includes(query.toLowerCase()))} /> : <EmptyView eyebrow="Idea bank" title="No ideas saved" body="Save the rough hook now. Turn it into a post later." action="Add idea" onAction={() => setModal("idea")} />)}
+            {active === "Creators" && (creators.length ? <CreatorsView creators={creators.filter((c) => `${c.name} ${c.handle} ${c.specialties.join(" ")}`.toLowerCase().includes(query.toLowerCase()))} selected={selectedCreator} onSelect={setSelectedCreator} /> : <EmptyView eyebrow="Creators" title="No creators added" body="Add the people you brief, shoot with, or contact for the page." action="Add creator" onAction={() => setModal("creator")} />)}
           </div>
         </main>
       </SidebarInset>
@@ -211,8 +183,12 @@ function PageHeading({ eyebrow, title, body, controls }: { eyebrow: string; titl
   return <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><div className="mb-2 flex items-center gap-2 text-sm font-medium text-[#0a7894]"><Compass className="size-4" /> {eyebrow}</div><h1 className="text-3xl font-semibold tracking-[-0.035em] text-[#071d2b]">{title}</h1><p className="mt-1 text-slate-500">{body}</p></div>{controls}</div>;
 }
 
-function SummaryCard({ label, value, color }: { label: string; value: number; color: string }) {
-  return <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_12px_35px_rgba(7,29,43,.04)]"><p className="text-sm text-slate-500">{label}</p><div className="mt-2 flex items-end justify-between"><strong className="text-3xl text-[#071d2b]">{value}</strong><span className="size-2.5 rounded-full" style={{ background: color }} /></div></div>;
+function SummaryCard({ label, value }: { label: string; value: number; color: string }) {
+  return <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_12px_35px_rgba(7,29,43,.04)]"><p className="text-sm text-slate-500">{label}</p><div className="mt-2 flex items-end justify-between"><strong className="text-3xl text-[#071d2b]">{value}</strong><span className="size-2.5 rounded-full bg-[#b11226]" /></div></div>;
+}
+
+function EmptyView({ eyebrow, title, body, action, onAction }: { eyebrow: string; title: string; body: string; action: string; onAction: () => void }) {
+  return <><PageHeading eyebrow={eyebrow} title={title} body={body} /><section className="grid min-h-[520px] place-items-center rounded-[22px] border border-dashed border-white/15 bg-[#0d0d0d] px-6 text-center"><div className="max-w-md"><div className="mx-auto grid size-14 place-items-center rounded-full bg-[#b11226]"><Plus className="size-6" /></div><h2 className="mt-6 text-2xl font-bold tracking-[-0.035em] text-white">Start with the next one.</h2><p className="mt-2 text-base leading-7 text-white/55">No filler. No demo content. Just the real @malta workflow.</p><Button onClick={onAction} className="mt-6 bg-[#b11226] text-white hover:bg-[#8f0d1e]"><Plus /> {action}</Button></div></section></>;
 }
 
 function CalendarView({ posts, onSelect }: { posts: Post[]; onSelect: (post: Post) => void }) {
