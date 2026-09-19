@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { upload as uploadBlob } from "@vercel/blob/client";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Clock3, Compass, Download, ExternalLink,
   Image as ImageIcon, Images, Camera as Instagram, Lightbulb, MessageCircle,
@@ -57,6 +58,35 @@ const scheduledTime = (value: string) => {
 const scheduledLabel = (value: string) => `${value.slice(0, 10)} · ${scheduledTime(value)}`;
 const readJson = (response: Response): Promise<Record<string, any>> => response.json() as Promise<Record<string, any>>;
 
+async function uploadMediaFile(file: File, caption = "") {
+  if (!file.size) throw new Error("Choose an image or video.");
+  if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) throw new Error("Only image and video files are supported.");
+  if (file.size > 100 * 1024 * 1024) throw new Error("Files must be 100 MB or smaller.");
+
+  if (window.location.hostname.endsWith("vercel.app")) {
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const blob = await uploadBlob(`media/${crypto.randomUUID()}-${safeName}`, file, {
+      access: "public",
+      handleUploadUrl: "/api/media/upload",
+      multipart: file.size > 20 * 1024 * 1024,
+    });
+    const response = await fetch("/api/media", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ filename: file.name, caption, mimeType: file.type, url: blob.url, pathname: blob.pathname }),
+    });
+    if (!response.ok) throw new Error((await readJson(response)).error || "Upload failed");
+    return readJson(response);
+  }
+
+  const form = new FormData();
+  form.set("file", file);
+  form.set("caption", caption);
+  const response = await fetch("/api/media", { method: "POST", body: form });
+  if (!response.ok) throw new Error((await readJson(response)).error || "Upload failed");
+  return readJson(response);
+}
+
 export function MaltaStudio() {
   const [active, setActive] = useState("Calendar");
   const [query, setQuery] = useState("");
@@ -79,7 +109,7 @@ export function MaltaStudio() {
       if (!response.ok) return;
       const data = await readJson(response);
       if (data.posts?.length) setPosts(data.posts.map((p: Record<string, unknown>) => ({ id: p.id, title: p.title, caption: p.caption, format: p.format, status: p.status, scheduledAt: p.scheduled_at, location: p.location, tone: p.tone, assignee: p.assignee, mediaId: p.media_id || undefined, comments: (data.comments || []).filter((comment: Record<string, unknown>) => comment.post_id === p.id).map((comment: Record<string, unknown>) => ({ id: comment.id, body: comment.body, author: comment.author, createdAt: comment.created_at })) })));
-      if (data.media?.length) setMedia(data.media.map((m: Record<string, unknown>, index: number) => ({ id: m.id, filename: m.filename, caption: m.caption, status: m.status, mimeType: m.mime_type, uploadedBy: m.uploaded_by, usedCount: m.used_count, tone: ["sun", "sea", "gold", "stone", "coral", "harbour", "pool"][index % 7], url: `/api/media/${m.id}` })));
+      setMedia((data.media || []).map((m: Record<string, unknown>, index: number) => ({ id: m.id, filename: m.filename, caption: m.caption, status: m.status, mimeType: m.mime_type, uploadedBy: m.uploaded_by, usedCount: m.used_count, tone: ["sun", "sea", "gold", "stone", "coral", "harbour", "pool"][index % 7], url: String(m.url || `/api/media/${m.id}`) })));
       setIdeas((data.ideas || []).map((i: Record<string, unknown>) => ({ id: i.id, kind: i.kind, title: i.title, notes: i.notes, color: i.color, createdBy: i.created_by, mediaId: i.media_id || undefined, linkedTo: i.linked_to || undefined })));
       if (data.creators?.length) {
         const mapped = data.creators.map((c: Record<string, unknown>) => ({ id: c.id, name: c.name, handle: c.handle, specialties: JSON.parse(String(c.specialties || "[]")), status: c.status, instagram: c.instagram, location: c.location, bio: c.bio, notes: c.notes, nextAction: c.next_action }));
@@ -135,10 +165,7 @@ export function MaltaStudio() {
   }, []);
 
   const uploadIdeaReference = useCallback(async (file: File) => {
-    const form = new FormData(); form.set("file", file); form.set("caption", "");
-    const response = await fetch("/api/media", { method: "POST", body: form });
-    if (!response.ok) throw new Error((await readJson(response)).error || "Upload failed");
-    const saved = await readJson(response);
+    const saved = await uploadMediaFile(file);
     await saveRecord({ entity: "idea", kind: "Reference", title: file.name, notes: "", color: "coral", mediaId: saved.id });
     setNotice("Reference uploaded and added");
   }, [saveRecord]);
@@ -190,8 +217,9 @@ export function MaltaStudio() {
     const values = Object.fromEntries(new FormData(form));
     try {
       if (modal === "upload") {
-        const response = await fetch("/api/media", { method: "POST", body: new FormData(form) });
-        if (!response.ok) throw new Error((await readJson(response)).error || "Upload failed");
+        const file = values.file;
+        if (!(file instanceof File)) throw new Error("Choose an image or video.");
+        await uploadMediaFile(file, String(values.caption || ""));
         await loadWorkspace();
       } else if (modal === "post") {
         const mediaId = String(values.mediaId || "");
