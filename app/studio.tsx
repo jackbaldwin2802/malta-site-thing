@@ -5,7 +5,7 @@ import { upload as uploadBlob } from "@vercel/blob/client";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Clock3, Compass, Download, ExternalLink,
   Image as ImageIcon, Images, Camera as Instagram, Lightbulb, MessageCircle,
-  Maximize2, MoreHorizontal, Plus, Search, Sparkles, Trash2, Upload, UserRound, Users, ZoomIn, ZoomOut,
+  Maximize2, MoreHorizontal, Plus, Search, Trash2, Upload, UserRound, Users, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -287,6 +287,24 @@ function MediaPreview({ item, className = "" }: { item?: Media; className?: stri
   return <img src={item.url || `/api/media/${item.id}`} alt={item.filename} className={`bg-black object-cover ${className}`} />;
 }
 
+function ContentThumbnail({ item }: { item: Media }) {
+  const src = item.url || `/api/media/${item.id}`;
+  if (item.mimeType.startsWith("video/")) {
+    return <video
+      src={`${src}#t=0.1`}
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      aria-label={`Video preview for ${item.filename}`}
+      onMouseEnter={(event) => void event.currentTarget.play().catch(() => undefined)}
+      onMouseLeave={(event) => { event.currentTarget.pause(); event.currentTarget.currentTime = .1; }}
+      className="absolute inset-0 size-full bg-black object-cover"
+    />;
+  }
+  return <img src={src} alt={item.filename} className="absolute inset-0 size-full bg-black object-cover" />;
+}
+
 function CalendarView({ posts, media, onSelect, onCreate }: { posts: Post[]; media: Media[]; onSelect: (post: Post) => void; onCreate: (date: string) => void }) {
   const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const preview = posts[0];
@@ -357,7 +375,7 @@ function ContentView({ media, allMedia, filter, onFilter, onSelect, onUpload, qu
         <div className="mt-4 overflow-x-auto"><Tabs value={filter} onValueChange={onFilter}><TabsList className="h-auto bg-black p-1">{["All", "Approved", "In review", "Changes requested", "Draft", "Archived"].map((tab) => <TabsTrigger key={tab} value={tab} className="gap-2 whitespace-nowrap">{tab}<span className="text-xs text-white/35">{counts[tab]}</span></TabsTrigger>)}</TabsList></Tabs></div>
       </div>
 
-      {media.length ? <div className="grid gap-px bg-white/10 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{media.map((item) => <button key={item.id} onClick={() => onSelect(item)} className="group bg-[#0d0d0d] p-3 text-left transition hover:bg-white/5"><div className={`relative aspect-[4/3] overflow-hidden rounded-lg ${toneClass(item.tone)}`}>{item.url && item.mimeType.startsWith("image/") ? <img src={item.url} alt="" className="absolute inset-0 size-full object-cover" /> : <div className="grid size-full place-items-center text-white/70">{item.mimeType.startsWith("video/") ? <Sparkles className="size-8" /> : <ImageIcon className="size-8" />}</div>}<Badge className={`absolute right-2 top-2 border-0 ${statusClass(item.status)}`}>{item.status}</Badge></div><p className="mt-3 truncate text-sm font-semibold">{item.filename}</p><p className="mt-1 line-clamp-2 min-h-10 text-sm leading-5 text-white/45">{item.caption || "No reusable caption"}</p><div className="mt-3 flex justify-between text-xs text-white/35"><span>{item.uploadedBy}</span><span>{item.usedCount ? `Used in ${item.usedCount}` : "Unused"}</span></div></button>)}</div> : <div className="grid min-h-[420px] place-items-center px-6 text-center"><div><Images className="mx-auto size-8 text-white/25" /><p className="mt-4 text-base font-semibold">No media in this view</p><p className="mt-1 text-sm text-white/40">Upload the first image or video for @malta.</p><Button onClick={onUpload} className="mt-5 bg-[#b11226] hover:bg-[#8f0d1e]"><Upload /> Upload media</Button></div></div>}
+      {media.length ? <div className="grid gap-px bg-white/10 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{media.map((item) => <button key={item.id} onClick={() => onSelect(item)} className="group bg-[#0d0d0d] p-3 text-left transition hover:bg-white/5"><div className={`relative aspect-[4/3] overflow-hidden rounded-lg ${toneClass(item.tone)}`}><ContentThumbnail item={item} /><Badge className={`absolute right-2 top-2 border-0 ${statusClass(item.status)}`}>{item.status}</Badge></div><p className="mt-3 truncate text-sm font-semibold">{item.filename}</p><p className="mt-1 line-clamp-2 min-h-10 text-sm leading-5 text-white/45">{item.caption || "No reusable caption"}</p><div className="mt-3 flex justify-between text-xs text-white/35"><span>{item.uploadedBy}</span><span>{item.usedCount ? `Used in ${item.usedCount}` : "Unused"}</span></div></button>)}</div> : <div className="grid min-h-[420px] place-items-center px-6 text-center"><div><Images className="mx-auto size-8 text-white/25" /><p className="mt-4 text-base font-semibold">No media in this view</p><p className="mt-1 text-sm text-white/40">Upload the first image or video for @malta.</p><Button onClick={onUpload} className="mt-5 bg-[#b11226] hover:bg-[#8f0d1e]"><Upload /> Upload media</Button></div></div>}
       <button onClick={onUpload} className="w-full border-t border-dashed border-white/15 px-4 py-4 text-center text-sm text-white/35 hover:text-white">Drop media to upload</button>
     </section>
   </>;
