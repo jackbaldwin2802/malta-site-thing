@@ -50,8 +50,14 @@ async function readLatestWorkspace(): Promise<WorkspaceData> {
     return await new Response(record.stream).json() as WorkspaceRow;
   }));
   const existingIds = new Set(workspace.media.map((item) => String(item.id)));
+  const existingUrls = new Set(workspace.media.map((item) => String(item.url ?? "")).filter(Boolean));
   for (const record of records) {
-    if (record?.id && !existingIds.has(String(record.id))) workspace.media.unshift(record);
+    const recordUrl = String(record?.url ?? "");
+    if (record?.id && !existingIds.has(String(record.id)) && (!recordUrl || !existingUrls.has(recordUrl))) {
+      workspace.media.unshift(record);
+      existingIds.add(String(record.id));
+      if (recordUrl) existingUrls.add(recordUrl);
+    }
   }
   return workspace;
 }
