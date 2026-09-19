@@ -1,4 +1,4 @@
-import { list, put } from "@vercel/blob";
+import { BlobPreconditionFailedError, get, put } from "@vercel/blob";
 
 export type WorkspaceRow = Record<string, any>;
 
@@ -26,39 +26,43 @@ function assertStorage() {
   }
 }
 
-export async function readVercelWorkspace(): Promise<WorkspaceData> {
+async function readLatestWorkspace(): Promise<{ workspace: WorkspaceData; etag?: string }> {
   assertStorage();
-  const result = await list({ prefix: WORKSPACE_PATH, limit: 10 });
-  const workspaceBlob = result.blobs.find((blob) => blob.pathname === WORKSPACE_PATH);
-  if (!workspaceBlob) return emptyWorkspace();
+  const result = await get(WORKSPACE_PATH, { access: "public", useCache: false });
+  if (!result) return { workspace: emptyWorkspace() };
+  if (result.statusCode !== 200 || !result.stream) throw new Error("Unable to read the shared workspace.");
 
-  const response = await fetch(`${workspaceBlob.url}?fresh=${Date.now()}`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Unable to read the shared workspace.");
-  const value = await response.json() as Partial<WorkspaceData>;
-  return {
+  const value = await new Response(result.stream).json() as Partial<WorkspaceData>;
+  return { workspace: {
     posts: Array.isArray(value.posts) ? value.posts : [],
     media: Array.isArray(value.media) ? value.media : [],
     ideas: Array.isArray(value.ideas) ? value.ideas : [],
     creators: Array.isArray(value.creators) ? value.creators : [],
     comments: Array.isArray(value.comments) ? value.comments : [],
-  };
+  }, etag: result.blob.etag };
 }
 
-export async function writeVercelWorkspace(workspace: WorkspaceData) {
-  assertStorage();
-  await put(WORKSPACE_PATH, JSON.stringify(workspace), {
-    access: "public",
-    allowOverwrite: true,
-    addRandomSuffix: false,
-    cacheControlMaxAge: 60,
-    contentType: "application/json",
-  });
+export async function readVercelWorkspace(): Promise<WorkspaceData> {
+  return (await readLatestWorkspace()).workspace;
 }
 
 export async function mutateVercelWorkspace(mutator: (workspace: WorkspaceData) => void | Promise<void>) {
-  const workspace = await readVercelWorkspace();
-  await mutator(workspace);
-  await writeVercelWorkspace(workspace);
-  return workspace;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { workspace, etag } = await readLatestWorkspace();
+    await mutator(workspace);
+    try {
+      await put(WORKSPACE_PATH, JSON.stringify(workspace), {
+        access: "public",
+        allowOverwrite: Boolean(etag),
+        addRandomSuffix: false,
+        cacheControlMaxAge: 60,
+        contentType: "application/json",
+        ...(etag ? { ifMatch: etag } : {}),
+      });
+      return workspace;
+    } catch (error) {
+      if (!(error instanceof BlobPreconditionFailedError) || attempt === 4) throw error;
+    }
+  }
+  throw new Error("Unable to save the latest workspace changes.");
 }
-
