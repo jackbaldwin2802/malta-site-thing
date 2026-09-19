@@ -136,12 +136,24 @@ export function MaltaStudio() {
   }, []);
 
   const addComment = useCallback(async (post: Post, body: string) => {
-    const response = await fetch("/api/workspace", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: "comment", postId: post.id, body }) });
-    if (!response.ok) throw new Error((await readJson(response)).error || "Unable to add comment");
-    const saved = await readJson(response);
-    const comment: PostComment = { id: saved.id, body, author: saved.author || "Malta team", createdAt: saved.createdAt || new Date().toISOString() };
-    setPosts((items) => items.map((item) => item.id === post.id ? { ...item, comments: [...item.comments, comment] } : item));
-    setSelectedPost((item) => item?.id === post.id ? { ...item, comments: [...item.comments, comment] } : item);
+    const temporaryId = `pending-${crypto.randomUUID()}`;
+    const optimistic: PostComment = { id: temporaryId, body, author: "Malta team", createdAt: new Date().toISOString() };
+    const add = (item: Post) => item.id === post.id ? { ...item, comments: [...item.comments, optimistic] } : item;
+    setPosts((items) => items.map(add));
+    setSelectedPost((item) => item ? add(item) : item);
+    try {
+      const response = await fetch("/api/workspace", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: "comment", postId: post.id, body }) });
+      if (!response.ok) throw new Error((await readJson(response)).error || "Unable to add comment");
+      const saved = await readJson(response);
+      const replace = (item: Post) => item.id === post.id ? { ...item, comments: item.comments.map((comment) => comment.id === temporaryId ? { ...optimistic, id: saved.id, author: saved.author || optimistic.author, createdAt: saved.createdAt || optimistic.createdAt } : comment) } : item;
+      setPosts((items) => items.map(replace));
+      setSelectedPost((item) => item ? replace(item) : item);
+    } catch (error) {
+      const rollback = (item: Post) => item.id === post.id ? { ...item, comments: item.comments.filter((comment) => comment.id !== temporaryId) } : item;
+      setPosts((items) => items.map(rollback));
+      setSelectedPost((item) => item ? rollback(item) : item);
+      throw error;
+    }
   }, []);
 
   const updateMediaNotes = useCallback(async (item: Media, caption: string) => {
@@ -224,14 +236,27 @@ export function MaltaStudio() {
       } else if (modal === "post") {
         const mediaId = String(values.mediaId || "");
         if (!mediaId) throw new Error("Choose media from the content bank first.");
-        await saveRecord({ entity: "post", title: values.title, caption: values.caption, format: values.format, scheduledAt: values.scheduledAt, location: values.location, tone: "crimson", mediaId });
+        const temporaryId = `pending-${crypto.randomUUID()}`;
+        const optimistic: Post = { id: temporaryId, title: String(values.title || ""), caption: String(values.caption || ""), format: String(values.format || "Reel"), status: "Pending", scheduledAt: String(values.scheduledAt || ""), location: String(values.location || ""), tone: "crimson", assignee: "Malta team", mediaId, comments: [] };
+        setPosts((items) => [...items, optimistic]);
+        setModal(null);
+        form.reset();
+        setNotice("Added to calendar");
+        try {
+          await saveRecord({ entity: "post", title: values.title, caption: values.caption, format: values.format, scheduledAt: values.scheduledAt, location: values.location, tone: "crimson", mediaId });
+        } catch (error) {
+          setPosts((items) => items.filter((item) => item.id !== temporaryId));
+          throw error;
+        }
       } else if (modal === "idea") {
         await saveRecord({ entity: "idea", title: values.title, notes: values.notes, kind: values.kind, color: "coral" });
       } else if (modal === "creator") {
         await saveRecord({ entity: "creator", name: values.name, handle: values.handle, instagram: values.instagram, location: values.location, bio: values.bio, specialties: [String(values.specialty || "Photography")], nextAction: values.nextAction });
       }
-      setNotice(modal === "upload" ? "Media uploaded" : "Saved to the Malta workspace");
-      setModal(null); form.reset();
+      if (modal !== "post") {
+        setNotice(modal === "upload" ? "Media uploaded" : "Saved to the Malta workspace");
+        setModal(null); form.reset();
+      }
     } catch (error) {
       if (location.hostname === "localhost") { setNotice("Preview action captured. It will persist on the live site."); setModal(null); }
       else setNotice(error instanceof Error ? error.message : "Unable to save");
@@ -307,47 +332,107 @@ function ContentThumbnail({ item }: { item: Media }) {
 
 function CalendarView({ posts, media, onSelect, onCreate }: { posts: Post[]; media: Media[]; onSelect: (post: Post) => void; onCreate: (date: string) => void }) {
   const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const preview = posts[0];
-  const pending = posts.filter((post) => post.status === "Pending").length;
-  const revisions = posts.filter((post) => post.status === "Needs revisions").length;
-  const approved = posts.filter((post) => post.status === "Approved").length;
-  const denied = posts.filter((post) => post.status === "Denied").length;
+  const [view, setView] = useState<"week" | "month">("week");
+  const [cursor, setCursor] = useState(() => new Date());
+  const startOfWeek = (value: Date) => {
+    const date = new Date(value);
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+    return date;
+  };
+  const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const dates = useMemo(() => {
+    const first = view === "week" ? startOfWeek(cursor) : startOfWeek(new Date(cursor.getFullYear(), cursor.getMonth(), 1, 12));
+    return Array.from({ length: view === "week" ? 7 : 42 }, (_, index) => {
+      const date = new Date(first);
+      date.setDate(first.getDate() + index);
+      return date;
+    });
+  }, [cursor, view]);
+  const visibleKeys = new Set(dates.map(dateKey));
+  const visiblePosts = posts.filter((post) => visibleKeys.has(post.scheduledAt.slice(0, 10)));
+  const preview = visiblePosts[0];
+  const previewBadgeClass = preview ? `border-0 ${statusClass(preview.status)}` : "border-0";
+  const pending = visiblePosts.filter((post) => post.status === "Pending").length;
+  const revisions = visiblePosts.filter((post) => post.status === "Needs revisions").length;
+  const approved = visiblePosts.filter((post) => post.status === "Approved").length;
+  const denied = visiblePosts.filter((post) => post.status === "Denied").length;
+  const move = (amount: number) => setCursor((current) => {
+    const next = new Date(current);
+    if (view === "week") next.setDate(next.getDate() + amount * 7);
+    else next.setMonth(next.getMonth() + amount, 1);
+    return next;
+  });
+  const rangeLabel = view === "month"
+    ? cursor.toLocaleDateString("en-GB", { month: "long", year: "numeric" })
+    : `${dates[0].toLocaleDateString("en-GB", { month: "short", day: "numeric" })}–${dates[6].toLocaleDateString("en-GB", { month: dates[0].getMonth() === dates[6].getMonth() ? undefined : "short", day: "numeric", year: dates[0].getFullYear() === dates[6].getFullYear() ? undefined : "numeric" })}`;
 
   return <>
     <div className="mb-5 flex flex-wrap items-center gap-2">
-      <Button variant="outline" size="icon" aria-label="Previous week"><ChevronLeft /></Button>
-      <div className="min-w-32 px-3 text-center text-sm font-semibold">Sep 14–20</div>
-      <Button variant="outline" size="icon" aria-label="Next week"><ChevronRight /></Button>
-      <div className="ml-2 flex rounded-lg border border-white/10 bg-[#0d0d0d] p-1"><Button size="sm" className="bg-[#b11226]">Week</Button><Button size="sm" variant="ghost">Month</Button></div>
-      <Button variant="outline" className="ml-auto">Today</Button>
+      <Button onClick={() => move(-1)} variant="outline" size="icon" aria-label={`Previous ${view}`}><ChevronLeft /></Button>
+      <div className="min-w-44 px-3 text-center text-sm font-semibold">{rangeLabel}</div>
+      <Button onClick={() => move(1)} variant="outline" size="icon" aria-label={`Next ${view}`}><ChevronRight /></Button>
+      <div className="ml-2 flex rounded-lg border border-white/10 bg-[#0d0d0d] p-1"><Button onClick={() => setView("week")} size="sm" variant={view === "week" ? "default" : "ghost"} className={view === "week" ? "bg-[#b11226] hover:bg-[#8f0d1e]" : ""}>Week</Button><Button onClick={() => setView("month")} size="sm" variant={view === "month" ? "default" : "ghost"} className={view === "month" ? "bg-[#b11226] hover:bg-[#8f0d1e]" : ""}>Month</Button></div>
+      <Button onClick={() => setCursor(new Date())} variant="outline" className="ml-auto">Today</Button>
     </div>
 
     <section aria-label="Workflow summary" className="mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10 lg:grid-cols-5">
-      {[["Week", posts.length], ["Pending", pending], ["Needs revisions", revisions], ["Approved", approved], ["Denied", denied]].map(([label, value]) => <button key={String(label)} className="flex items-center justify-between bg-[#0d0d0d] px-4 py-3 text-left hover:bg-white/5"><span className="text-sm text-white/55">{label}</span><strong className="text-lg text-white">{value}</strong></button>)}
+      {[[view === "week" ? "Week" : "Month", visiblePosts.length], ["Pending", pending], ["Needs revisions", revisions], ["Approved", approved], ["Denied", denied]].map(([label, value]) => <button key={String(label)} className="flex items-center justify-between bg-[#0d0d0d] px-4 py-3 text-left hover:bg-white/5"><span className="text-sm text-white/55">{label}</span><strong className="text-lg text-white">{value}</strong></button>)}
     </section>
 
     <section aria-label="Operations inbox" className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10 lg:grid-cols-4">
-      {[["Awaiting review", pending], ["Needs revisions", revisions], ["Open days", Math.max(0, 7 - posts.length)], ["Denied", denied]].map(([label, value]) => <div key={String(label)} className="bg-black px-4 py-3"><p className="text-xs uppercase tracking-[0.12em] text-white/35">{label}</p><p className="mt-1 text-xl font-semibold">{value}</p></div>)}
+      {[["Awaiting review", pending], ["Needs revisions", revisions], ["Open days", Math.max(0, dates.length - new Set(visiblePosts.map((post) => post.scheduledAt.slice(0, 10))).size)], ["Denied", denied]].map(([label, value]) => <div key={String(label)} className="bg-black px-4 py-3"><p className="text-xs uppercase tracking-[0.12em] text-white/35">{label}</p><p className="mt-1 text-xl font-semibold">{value}</p></div>)}
     </section>
 
     <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
       <section aria-label="Calendar" className="overflow-x-auto rounded-xl border border-white/10 bg-[#0d0d0d]">
         <div className="grid min-w-[980px] grid-cols-7 divide-x divide-white/10">
-          {weekDays.map((day, index) => {
-            const date = `2026-09-${String(14 + index).padStart(2, "0")}`;
-            const post = posts.find((item) => item.scheduledAt.slice(0, 10) === date);
-            const asset = post?.mediaId ? media.find((item) => item.id === post.mediaId) : undefined;
-            return <div key={day} className="min-h-[510px] p-3">
-              <div className="border-b border-white/10 pb-3 text-sm font-semibold"><span>{day}</span><span className="ml-1 text-white/35">Sep {14 + index}</span></div>
-              {post ? <div className="mt-3 rounded-lg border border-white/10 bg-black p-2 transition hover:border-[#b11226]"><MediaPreview item={asset} className="aspect-square w-full rounded-md" /><button onClick={() => onSelect(post)} className="w-full text-left"><Badge className={`mt-3 border-0 ${statusClass(post.status)}`}>{post.status}</Badge><p className="mt-2 line-clamp-3 text-sm font-semibold leading-5">{post.caption || post.title}</p><p className="mt-3 text-xs text-white/40">{scheduledTime(post.scheduledAt)} · {post.assignee}</p><span className="mt-3 flex items-center justify-between text-xs font-semibold text-[#b11226]"><span>Details & comments</span><span className="flex items-center gap-1 text-white/45"><MessageCircle className="size-3.5" />{post.comments.length}</span></span></button></div> : <button onClick={() => onCreate(date)} className="mt-3 flex min-h-56 w-full flex-col items-center justify-center rounded-lg border border-dashed border-white/15 text-white/35 transition hover:border-[#b11226] hover:text-white"><Plus className="mb-2 size-4" /><span className="text-sm">Add post</span></button>}
-            </div>;
+          {dates.map((date, index) => {
+            const key = dateKey(date);
+            const dayPosts = posts.filter((item) => item.scheduledAt.slice(0, 10) === key);
+            const outsideMonth = view === "month" && date.getMonth() !== cursor.getMonth();
+            return (
+              <div key={key} className={`${view === "week" ? "min-h-[510px]" : "min-h-48"} p-2.5 ${outsideMonth ? "bg-white/[.02] opacity-55" : ""}`}>
+                <div className="flex items-center justify-between border-b border-white/10 pb-2 text-sm font-semibold">
+                  <span>{weekDays[index % 7]} <span className="ml-1 text-white/35">{date.toLocaleDateString("en-GB", { month: "short", day: "numeric" })}</span></span>
+                  <button onClick={() => onCreate(key)} aria-label={`Add post on ${key}`} className="grid size-6 place-items-center rounded-md text-white/35 hover:bg-[#b11226] hover:text-white"><Plus className="size-3.5" /></button>
+                </div>
+                <div className="space-y-2 pt-2">
+                  {dayPosts.map((post) => {
+                    const asset = post.mediaId ? media.find((item) => item.id === post.mediaId) : undefined;
+                    return (
+                      <button key={post.id} onClick={() => onSelect(post)} className="w-full rounded-lg border border-white/10 bg-black p-2 text-left transition hover:border-[#b11226]">
+                        <MediaPreview item={asset} className={`${view === "week" ? "aspect-square" : "aspect-video"} w-full rounded-md`} />
+                        <Badge className={`mt-2 border-0 ${statusClass(post.status)}`}>{post.status}</Badge>
+                        <p className="mt-1 line-clamp-2 text-xs font-semibold leading-4">{post.caption || post.title}</p>
+                        <span className="mt-2 flex items-center justify-between text-[11px] text-white/40"><span>{scheduledTime(post.scheduledAt)}</span><span className="flex items-center gap-1"><MessageCircle className="size-3" />{post.comments.length}</span></span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {!dayPosts.length && <button onClick={() => onCreate(key)} className={`${view === "week" ? "min-h-56" : "min-h-24"} mt-2 flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-white/15 text-white/35 transition hover:border-[#b11226] hover:text-white`}><Plus className="mb-1 size-4" /><span className="text-xs">Add post</span></button>}
+              </div>
+            );
           })}
         </div>
       </section>
 
       <aside aria-label="Post preview" className="rounded-xl border border-white/10 bg-[#0d0d0d] p-4">
         <div className="flex items-center justify-between border-b border-white/10 pb-3"><div><p className="text-sm font-semibold">Instagram preview</p><p className="text-xs text-white/40">Select a post to review</p></div><Instagram className="size-5 text-[#b11226]" /></div>
-        {preview ? <div className="mt-4"><MediaPreview item={preview.mediaId ? media.find((item) => item.id === preview.mediaId) : undefined} className="aspect-[4/5] w-full rounded-lg" /><div className="mt-3 flex items-center justify-between"><Badge className={`border-0 ${statusClass(preview.status)}`}>{preview.status}</Badge><span className="flex items-center gap-1 text-xs text-white/45"><MessageCircle className="size-3.5" />{preview.comments.length}</span></div><p className="mt-3 text-sm leading-6">{preview.caption}</p><p className="mt-2 text-xs text-white/40">@malta · {scheduledTime(preview.scheduledAt)}</p><Button onClick={() => onSelect(preview)} variant="outline" className="mt-4 w-full">Open details & comments</Button></div> : <div className="grid min-h-[390px] place-items-center text-center"><div><CalendarDays className="mx-auto size-7 text-white/25" /><p className="mt-3 text-sm font-medium">No post selected</p><p className="mt-1 text-xs text-white/40">New posts will preview here.</p></div></div>}
+        {preview ? (
+          <div className="mt-4">
+            <MediaPreview item={preview.mediaId ? media.find((item) => item.id === preview.mediaId) : undefined} className="aspect-[4/5] w-full rounded-lg" />
+            <div className="mt-3 flex items-center justify-between">
+              <Badge className={previewBadgeClass}>{preview.status}</Badge>
+              <span className="flex items-center gap-1 text-xs text-white/45"><MessageCircle className="size-3.5" />{preview.comments.length}</span>
+            </div>
+            <p className="mt-3 text-sm leading-6">{preview.caption}</p>
+            <p className="mt-2 text-xs text-white/40">@malta · {scheduledTime(preview.scheduledAt)}</p>
+            <Button onClick={() => onSelect(preview)} variant="outline" className="mt-4 w-full">Open details & comments</Button>
+          </div>
+        ) : (
+          <div className="grid min-h-[390px] place-items-center text-center"><div><CalendarDays className="mx-auto size-7 text-white/25" /><p className="mt-3 text-sm font-medium">No post selected</p><p className="mt-1 text-xs text-white/40">New posts will preview here.</p></div></div>
+        )}
       </aside>
     </div>
   </>;
@@ -375,7 +460,7 @@ function ContentView({ media, allMedia, filter, onFilter, onSelect, onUpload, qu
         <div className="mt-4 overflow-x-auto"><Tabs value={filter} onValueChange={onFilter}><TabsList className="h-auto bg-black p-1">{["All", "Approved", "In review", "Changes requested", "Draft", "Archived"].map((tab) => <TabsTrigger key={tab} value={tab} className="gap-2 whitespace-nowrap">{tab}<span className="text-xs text-white/35">{counts[tab]}</span></TabsTrigger>)}</TabsList></Tabs></div>
       </div>
 
-      {media.length ? <div className="grid gap-px bg-white/10 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{media.map((item) => <button key={item.id} onClick={() => onSelect(item)} className="group bg-[#0d0d0d] p-3 text-left transition hover:bg-white/5"><div className={`relative aspect-[4/3] overflow-hidden rounded-lg ${toneClass(item.tone)}`}><ContentThumbnail item={item} /><Badge className={`absolute right-2 top-2 border-0 ${statusClass(item.status)}`}>{item.status}</Badge></div><p className="mt-3 truncate text-sm font-semibold">{item.filename}</p><p className="mt-1 line-clamp-2 min-h-10 text-sm leading-5 text-white/45">{item.caption || "No reusable caption"}</p><div className="mt-3 flex justify-between text-xs text-white/35"><span>{item.uploadedBy}</span><span>{item.usedCount ? `Used in ${item.usedCount}` : "Unused"}</span></div></button>)}</div> : <div className="grid min-h-[420px] place-items-center px-6 text-center"><div><Images className="mx-auto size-8 text-white/25" /><p className="mt-4 text-base font-semibold">No media in this view</p><p className="mt-1 text-sm text-white/40">Upload the first image or video for @malta.</p><Button onClick={onUpload} className="mt-5 bg-[#b11226] hover:bg-[#8f0d1e]"><Upload /> Upload media</Button></div></div>}
+      {media.length ? <div className="grid gap-px bg-white/10 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{media.map((item) => <button key={item.id} onClick={() => onSelect(item)} className="group bg-[#0d0d0d] p-3 text-left transition hover:bg-white/5"><div className={"relative aspect-[4/3] overflow-hidden rounded-lg " + toneClass(item.tone)}><ContentThumbnail item={item} /><Badge className={"absolute right-2 top-2 border-0 " + statusClass(item.status)}>{item.status}</Badge></div><p className="mt-3 truncate text-sm font-semibold">{item.filename}</p><p className="mt-1 line-clamp-2 min-h-10 text-sm leading-5 text-white/45">{item.caption || "No reusable caption"}</p><div className="mt-3 flex justify-between text-xs text-white/35"><span>{item.uploadedBy}</span><span>{item.usedCount ? "Used in " + item.usedCount : "Unused"}</span></div></button>)}</div> : <div className="grid min-h-[420px] place-items-center px-6 text-center"><div><Images className="mx-auto size-8 text-white/25" /><p className="mt-4 text-base font-semibold">No media in this view</p><p className="mt-1 text-sm text-white/40">Upload the first image or video for @malta.</p><Button onClick={onUpload} className="mt-5 bg-[#b11226] hover:bg-[#8f0d1e]"><Upload /> Upload media</Button></div></div>}
       <button onClick={onUpload} className="w-full border-t border-dashed border-white/15 px-4 py-4 text-center text-sm text-white/35 hover:text-white">Drop media to upload</button>
     </section>
   </>;
@@ -444,8 +529,10 @@ function PostSheet({ post, media, onClose, onStatus, onComment, onDelete }: { po
   const submitComment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!post || !comment.trim()) return;
-    await onComment(post, comment.trim());
+    const body = comment.trim();
     setComment("");
+    try { await onComment(post, body); }
+    catch { setComment(body); }
   };
   return <Sheet open={Boolean(post)} onOpenChange={(open) => !open && onClose()}><SheetContent className="w-full overflow-y-auto sm:max-w-lg">{post && <><SheetHeader className="border-b px-6 py-5"><div className="mb-2 flex items-center gap-2"><Badge className={statusClass(post.status)}>{post.status}</Badge><span className="text-xs text-slate-500">{scheduledLabel(post.scheduledAt)}</span></div><SheetTitle className="text-2xl tracking-tight">{post.title}</SheetTitle><SheetDescription>Instagram {post.format.toLowerCase()} · {post.location}</SheetDescription></SheetHeader><div className="space-y-6 p-6"><MediaPreview item={asset} className="aspect-[4/5] w-full rounded-2xl" /><div><p className="mb-2 text-sm font-medium text-[#071d2b]">Caption</p><p className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">{post.caption || "No caption yet."}</p></div><div><p className="mb-3 text-sm font-medium">Review status</p><div className="grid grid-cols-2 gap-2">{["Pending", "Approved", "Needs revisions", "Denied"].map((status) => <Button key={status} type="button" variant="outline" onClick={() => onStatus(post, status)} className={`${statusClass(status)} border-0 ${post.status === status ? "ring-2 ring-white" : "opacity-80"}`}>{status}</Button>)}</div></div><div><div className="mb-3 flex items-center justify-between"><p className="text-sm font-medium">Comments</p><span className="text-xs text-white/40">{post.comments.length}</span></div><div className="max-h-64 space-y-2 overflow-y-auto">{post.comments.length ? post.comments.map((item) => <div key={item.id} className="rounded-xl border border-white/10 bg-white/5 p-3"><div className="flex justify-between gap-3 text-xs text-white/40"><span>{item.author}</span><time>{new Date(item.createdAt).toLocaleString()}</time></div><p className="mt-2 text-sm leading-6">{item.body}</p></div>) : <p className="rounded-xl border border-dashed border-white/10 p-4 text-sm text-white/40">No comments yet.</p>}</div><form onSubmit={submitComment} className="mt-3 space-y-2"><Textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Leave feedback or revision notes" /><Button type="submit" disabled={!comment.trim()} className="w-full bg-[#b11226] hover:bg-[#8f0d1e]"><MessageCircle /> Add comment</Button></form></div><Button variant="outline" onClick={() => onDelete(post)} className="w-full text-[#b11226]"><Trash2 /> Remove from calendar</Button><p className="-mt-4 text-center text-xs text-white/35">The media stays in the Content Bank.</p></div></>}</SheetContent></Sheet>;
 }
