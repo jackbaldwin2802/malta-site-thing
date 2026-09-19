@@ -1,4 +1,4 @@
-import { get, put } from "@vercel/blob";
+import { del, get, list, put } from "@vercel/blob";
 
 export type WorkspaceRow = Record<string, any>;
 
@@ -11,6 +11,7 @@ export type WorkspaceData = {
 };
 
 const WORKSPACE_PATH = "workspace/malta-media-management.json";
+const MEDIA_RECORD_PREFIX = "workspace/media-records/";
 
 const emptyWorkspace = (): WorkspaceData => ({
   posts: [],
@@ -29,21 +30,49 @@ function assertStorage() {
 async function readLatestWorkspace(): Promise<WorkspaceData> {
   assertStorage();
   const result = await get(WORKSPACE_PATH, { access: "public", useCache: false });
-  if (!result) return emptyWorkspace();
-  if (result.statusCode !== 200 || !result.stream) throw new Error("Unable to read the shared workspace.");
-
-  const value = await new Response(result.stream).json() as Partial<WorkspaceData>;
-  return {
+  let value: Partial<WorkspaceData> = emptyWorkspace();
+  if (result) {
+    if (result.statusCode !== 200 || !result.stream) throw new Error("Unable to read the shared workspace.");
+    value = await new Response(result.stream).json() as Partial<WorkspaceData>;
+  }
+  const workspace: WorkspaceData = {
     posts: Array.isArray(value.posts) ? value.posts : [],
     media: Array.isArray(value.media) ? value.media : [],
     ideas: Array.isArray(value.ideas) ? value.ideas : [],
     creators: Array.isArray(value.creators) ? value.creators : [],
     comments: Array.isArray(value.comments) ? value.comments : [],
   };
+
+  const recordList = await list({ prefix: MEDIA_RECORD_PREFIX, limit: 1000 });
+  const records = await Promise.all(recordList.blobs.map(async (blob) => {
+    const record = await get(blob.pathname, { access: "public", useCache: false });
+    if (!record || record.statusCode !== 200 || !record.stream) return null;
+    return await new Response(record.stream).json() as WorkspaceRow;
+  }));
+  const existingIds = new Set(workspace.media.map((item) => String(item.id)));
+  for (const record of records) {
+    if (record?.id && !existingIds.has(String(record.id))) workspace.media.unshift(record);
+  }
+  return workspace;
 }
 
 export async function readVercelWorkspace(): Promise<WorkspaceData> {
   return readLatestWorkspace();
+}
+
+export async function writeVercelMediaRecord(record: WorkspaceRow) {
+  assertStorage();
+  await put(`${MEDIA_RECORD_PREFIX}${record.id}.json`, JSON.stringify(record), {
+    access: "public",
+    addRandomSuffix: false,
+    contentType: "application/json",
+    cacheControlMaxAge: 60,
+  });
+}
+
+export async function deleteVercelMediaRecord(id: string) {
+  assertStorage();
+  await del(`${MEDIA_RECORD_PREFIX}${id}.json`);
 }
 
 export async function mutateVercelWorkspace(mutator: (workspace: WorkspaceData) => void | Promise<void>) {

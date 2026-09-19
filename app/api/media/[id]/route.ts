@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { del } from "@vercel/blob";
-import { mutateVercelWorkspace, readVercelWorkspace } from "@/lib/vercel-workspace";
+import { deleteVercelMediaRecord, mutateVercelWorkspace, readVercelWorkspace } from "@/lib/vercel-workspace";
 
 export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
   if (process.env.VERCEL) {
@@ -53,6 +53,7 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
         workspace.ideas = workspace.ideas.map((item) => item.media_id === id ? { ...item, media_id: null } : item);
         workspace.media = workspace.media.filter((item) => item.id !== id);
       });
+      await deleteVercelMediaRecord(id);
       if (blobUrl) await del(blobUrl);
       return Response.json({ ok: true });
     }

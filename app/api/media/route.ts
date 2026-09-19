@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { mutateVercelWorkspace } from "@/lib/vercel-workspace";
+import { writeVercelMediaRecord } from "@/lib/vercel-workspace";
 
 export async function POST(request: Request) {
   try {
@@ -17,19 +17,17 @@ export async function POST(request: Request) {
         return Response.json({ error: "The uploaded media URL is invalid." }, { status: 400 });
       }
       const id = crypto.randomUUID();
-      await mutateVercelWorkspace((workspace) => {
-        workspace.media.unshift({
-          id,
-          filename,
-          caption: String(body.caption ?? ""),
-          status: "Draft",
-          mime_type: mimeType,
-          object_key: pathname || url,
-          url,
-          uploaded_by: "Malta team",
-          used_count: 0,
-          created_at: new Date().toISOString(),
-        });
+      await writeVercelMediaRecord({
+        id,
+        filename,
+        caption: String(body.caption ?? ""),
+        status: "Draft",
+        mime_type: mimeType,
+        object_key: pathname || url,
+        url,
+        uploaded_by: "Malta team",
+        used_count: 0,
+        created_at: new Date().toISOString(),
       });
       return Response.json({ id, url }, { status: 201 });
     }
