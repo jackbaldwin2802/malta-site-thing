@@ -6,6 +6,7 @@ export type WorkspaceData = {
   posts: WorkspaceRow[];
   media: WorkspaceRow[];
   ideas: WorkspaceRow[];
+  todos: WorkspaceRow[];
   creators: WorkspaceRow[];
   comments: WorkspaceRow[];
 };
@@ -17,6 +18,7 @@ const emptyWorkspace = (): WorkspaceData => ({
   posts: [],
   media: [],
   ideas: [],
+  todos: [],
   creators: [],
   comments: [],
 });
@@ -39,6 +41,7 @@ async function readLatestWorkspace(): Promise<WorkspaceData> {
     posts: Array.isArray(value.posts) ? value.posts : [],
     media: Array.isArray(value.media) ? value.media : [],
     ideas: Array.isArray(value.ideas) ? value.ideas : [],
+    todos: Array.isArray(value.todos) ? value.todos : [],
     creators: Array.isArray(value.creators) ? value.creators : [],
     comments: Array.isArray(value.comments) ? value.comments : [],
   };

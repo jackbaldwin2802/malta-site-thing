@@ -4,7 +4,7 @@ import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 
 import { upload as uploadBlob } from "@vercel/blob/client";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Clock3, Compass, Download, ExternalLink,
-  Image as ImageIcon, Images, Camera as Instagram, Lightbulb, MessageCircle,
+  Image as ImageIcon, Images, Camera as Instagram, Lightbulb, ListTodo, MessageCircle,
   Maximize2, MoreHorizontal, Plus, Search, Trash2, Upload, UserRound, Users, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -26,9 +26,10 @@ type PostComment = { id: string; body: string; author: string; createdAt: string
 type Post = { id: string; title: string; caption: string; format: string; status: string; scheduledAt: string; location: string; tone: string; assignee: string; mediaId?: string; comments: PostComment[] };
 type Media = { id: string; filename: string; caption: string; status: string; mimeType: string; uploadedBy: string; usedCount: number; tone: string; url?: string };
 type Idea = { id: string; kind: string; title: string; notes: string; color: string; createdBy: string; mediaId?: string; linkedTo?: string };
+type Todo = { id: string; title: string; notes: string; status: "In progress" | "Completed"; createdBy: string };
 type Creator = { id: string; name: string; handle: string; specialties: string[]; status: string; instagram: string; location: string; bio: string; notes: string; nextAction: string };
 type Modal = "post" | "upload" | "idea" | "creator" | null;
-type DeleteTarget = { entity: "post" | "media" | "idea" | "creator"; id: string; label: string };
+type DeleteTarget = { entity: "post" | "media" | "idea" | "todo" | "creator"; id: string; label: string };
 
 declare global {
   interface Document {
@@ -40,12 +41,14 @@ const nav = [
   { label: "Calendar", icon: CalendarDays },
   { label: "Content bank", icon: Images },
   { label: "Idea bank", icon: Lightbulb },
+  { label: "To-do", icon: ListTodo },
   { label: "Creators", icon: Users },
 ];
 
 const demoPosts: Post[] = [];
 const demoMedia: Media[] = [];
 const demoIdeas: Idea[] = [];
+const demoTodos: Todo[] = [];
 const demoCreators: Creator[] = [];
 
 const toneClass = (_tone: string) => "tone-crimson";
@@ -98,6 +101,7 @@ export function MaltaStudio() {
   const [posts, setPosts] = useState(demoPosts);
   const [media, setMedia] = useState(demoMedia);
   const [ideas, setIdeas] = useState(demoIdeas);
+  const [todos, setTodos] = useState(demoTodos);
   const [creators, setCreators] = useState(demoCreators);
   const [mediaFilter, setMediaFilter] = useState("All");
   const [notice, setNotice] = useState("");
@@ -111,6 +115,7 @@ export function MaltaStudio() {
       if (data.posts?.length) setPosts(data.posts.map((p: Record<string, unknown>) => ({ id: p.id, title: p.title, caption: p.caption, format: p.format, status: p.status, scheduledAt: p.scheduled_at, location: p.location, tone: p.tone, assignee: p.assignee, mediaId: p.media_id || undefined, comments: (data.comments || []).filter((comment: Record<string, unknown>) => comment.post_id === p.id).map((comment: Record<string, unknown>) => ({ id: comment.id, body: comment.body, author: comment.author, createdAt: comment.created_at })) })));
       setMedia((data.media || []).map((m: Record<string, unknown>, index: number) => ({ id: m.id, filename: m.filename, caption: m.caption, status: m.status, mimeType: m.mime_type, uploadedBy: m.uploaded_by, usedCount: m.used_count, tone: ["sun", "sea", "gold", "stone", "coral", "harbour", "pool"][index % 7], url: String(m.url || `/api/media/${m.id}`) })));
       setIdeas((data.ideas || []).map((i: Record<string, unknown>) => ({ id: i.id, kind: i.kind, title: i.title, notes: i.notes, color: i.color, createdBy: i.created_by, mediaId: i.media_id || undefined, linkedTo: i.linked_to || undefined })));
+      setTodos((data.todos || []).map((todo: Record<string, unknown>) => ({ id: todo.id, title: todo.title, notes: todo.notes, status: todo.status === "Completed" ? "Completed" : "In progress", createdBy: todo.created_by })));
       if (data.creators?.length) {
         const mapped = data.creators.map((c: Record<string, unknown>) => ({ id: c.id, name: c.name, handle: c.handle, specialties: JSON.parse(String(c.specialties || "[]")), status: c.status, instagram: c.instagram, location: c.location, bio: c.bio, notes: c.notes, nextAction: c.next_action }));
         setCreators(mapped); setSelectedCreator(mapped[0]);
@@ -123,8 +128,8 @@ export function MaltaStudio() {
   const saveRecord = useCallback(async (payload: Record<string, unknown>) => {
     const response = await fetch("/api/workspace", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     if (!response.ok) throw new Error((await readJson(response)).error || "Unable to save");
-    await loadWorkspace();
-  }, [loadWorkspace]);
+    return readJson(response);
+  }, []);
 
   const updatePostStatus = useCallback(async (post: Post, status: string) => {
     setPosts((all) => all.map((p) => p.id === post.id ? { ...p, status } : p));
@@ -165,9 +170,39 @@ export function MaltaStudio() {
   }, []);
 
   const createIdea = useCallback(async (kind: "Idea" | "Reference", item?: Media) => {
-    await saveRecord({ entity: "idea", kind, title: item?.filename || "Untitled idea", notes: item?.caption || "", color: "coral", mediaId: item?.id || "" });
+    const temporaryId = `pending-${crypto.randomUUID()}`;
+    const optimistic: Idea = { id: temporaryId, kind, title: item?.filename || "Untitled idea", notes: item?.caption || "", color: "coral", createdBy: "Malta team", mediaId: item?.id };
+    setIdeas((items) => [optimistic, ...items]);
     setNotice(kind === "Reference" ? "Reference added" : "Idea added");
+    try {
+      const saved = await saveRecord({ entity: "idea", kind, title: optimistic.title, notes: optimistic.notes, color: "coral", mediaId: item?.id || "" });
+      setIdeas((items) => items.map((idea) => idea.id === temporaryId ? { ...idea, id: String(saved.id) } : idea));
+    } catch (error) {
+      setIdeas((items) => items.filter((idea) => idea.id !== temporaryId));
+      throw error;
+    }
   }, [saveRecord]);
+
+  const createTodo = useCallback(async () => {
+    const temporaryId = `pending-${crypto.randomUUID()}`;
+    const optimistic: Todo = { id: temporaryId, title: "Untitled to-do", notes: "", status: "In progress", createdBy: "Malta team" };
+    setTodos((items) => [optimistic, ...items]);
+    setNotice("To-do added");
+    try {
+      const saved = await saveRecord({ entity: "todo", title: optimistic.title, notes: optimistic.notes });
+      setTodos((items) => items.map((todo) => todo.id === temporaryId ? { ...todo, id: String(saved.id) } : todo));
+    } catch (error) {
+      setTodos((items) => items.filter((todo) => todo.id !== temporaryId));
+      throw error;
+    }
+  }, [saveRecord]);
+
+  const updateTodo = useCallback(async (todo: Todo, changes: Partial<Todo>) => {
+    const next = { ...todo, ...changes };
+    setTodos((items) => items.map((item) => item.id === todo.id ? next : item));
+    const response = await fetch("/api/workspace", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: "todo", id: todo.id, title: next.title, notes: next.notes, status: next.status }) });
+    if (!response.ok) setNotice("Unable to save to-do");
+  }, []);
 
   const updateIdea = useCallback(async (idea: Idea, changes: Partial<Idea>) => {
     const next = { ...idea, ...changes };
@@ -178,9 +213,11 @@ export function MaltaStudio() {
 
   const uploadIdeaReference = useCallback(async (file: File) => {
     const saved = await uploadMediaFile(file);
-    await saveRecord({ entity: "idea", kind: "Reference", title: file.name, notes: "", color: "coral", mediaId: saved.id });
+    const uploaded: Media = { id: String(saved.id), filename: file.name, caption: "", status: "Draft", mimeType: file.type, uploadedBy: "Malta team", usedCount: 0, tone: "crimson", url: String(saved.url || "") };
+    setMedia((items) => [uploaded, ...items]);
+    await createIdea("Reference", uploaded);
     setNotice("Reference uploaded and added");
-  }, [saveRecord]);
+  }, [createIdea]);
 
   const performDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -192,6 +229,7 @@ export function MaltaStudio() {
     if (entity === "post") { setPosts((items) => items.filter((item) => item.id !== id)); setSelectedPost(null); }
     if (entity === "media") { setMedia((items) => items.filter((item) => item.id !== id)); setPosts((items) => items.map((item) => item.mediaId === id ? { ...item, mediaId: undefined } : item)); setSelectedMedia(null); }
     if (entity === "idea") setIdeas((items) => items.filter((item) => item.id !== id));
+    if (entity === "todo") setTodos((items) => items.filter((item) => item.id !== id));
     if (entity === "creator") { setCreators((items) => items.filter((item) => item.id !== id)); setSelectedCreator(null); }
     setDeleteTarget(null);
     setNotice("Removed from the workspace");
@@ -231,8 +269,21 @@ export function MaltaStudio() {
       if (modal === "upload") {
         const file = values.file;
         if (!(file instanceof File)) throw new Error("Choose an image or video.");
-        await uploadMediaFile(file, String(values.caption || ""));
-        await loadWorkspace();
+        const temporaryId = `uploading-${crypto.randomUUID()}`;
+        const localUrl = URL.createObjectURL(file);
+        const optimistic: Media = { id: temporaryId, filename: file.name, caption: String(values.caption || ""), status: "Draft", mimeType: file.type, uploadedBy: "Malta team", usedCount: 0, tone: "crimson", url: localUrl };
+        setMedia((items) => [optimistic, ...items]);
+        setModal(null); form.reset(); setNotice("Uploading media…");
+        try {
+          const saved = await uploadMediaFile(file, optimistic.caption);
+          setMedia((items) => items.map((item) => item.id === temporaryId ? { ...item, id: String(saved.id), url: String(saved.url || localUrl) } : item));
+          setNotice("Media uploaded");
+          URL.revokeObjectURL(localUrl);
+        } catch (error) {
+          setMedia((items) => items.filter((item) => item.id !== temporaryId));
+          URL.revokeObjectURL(localUrl);
+          throw error;
+        }
       } else if (modal === "post") {
         const mediaId = String(values.mediaId || "");
         if (!mediaId) throw new Error("Choose media from the content bank first.");
@@ -243,18 +294,21 @@ export function MaltaStudio() {
         form.reset();
         setNotice("Added to calendar");
         try {
-          await saveRecord({ entity: "post", title: values.title, caption: values.caption, format: values.format, scheduledAt: values.scheduledAt, location: values.location, tone: "crimson", mediaId });
+          const saved = await saveRecord({ entity: "post", title: values.title, caption: values.caption, format: values.format, scheduledAt: values.scheduledAt, location: values.location, tone: "crimson", mediaId });
+          setPosts((items) => items.map((item) => item.id === temporaryId ? { ...item, id: String(saved.id) } : item));
         } catch (error) {
           setPosts((items) => items.filter((item) => item.id !== temporaryId));
           throw error;
         }
       } else if (modal === "idea") {
-        await saveRecord({ entity: "idea", title: values.title, notes: values.notes, kind: values.kind, color: "coral" });
+        const saved = await saveRecord({ entity: "idea", title: values.title, notes: values.notes, kind: values.kind, color: "coral" });
+        setIdeas((items) => [{ id: String(saved.id), kind: String(values.kind || "Idea"), title: String(values.title || "Untitled idea"), notes: String(values.notes || ""), color: "coral", createdBy: "Malta team" }, ...items]);
       } else if (modal === "creator") {
-        await saveRecord({ entity: "creator", name: values.name, handle: values.handle, instagram: values.instagram, location: values.location, bio: values.bio, specialties: [String(values.specialty || "Photography")], nextAction: values.nextAction });
+        const saved = await saveRecord({ entity: "creator", name: values.name, handle: values.handle, instagram: values.instagram, location: values.location, bio: values.bio, specialties: [String(values.specialty || "Photography")], nextAction: values.nextAction });
+        setCreators((items) => [...items, { id: String(saved.id), name: String(values.name || ""), handle: String(values.handle || ""), specialties: [String(values.specialty || "Photography")], status: "Prospect", instagram: String(values.instagram || ""), location: String(values.location || ""), bio: String(values.bio || ""), notes: "", nextAction: String(values.nextAction || "") }]);
       }
-      if (modal !== "post") {
-        setNotice(modal === "upload" ? "Media uploaded" : "Saved to the Malta workspace");
+      if (modal === "idea" || modal === "creator") {
+        setNotice("Saved to the Malta workspace");
         setModal(null); form.reset();
       }
     } catch (error) {
@@ -272,13 +326,14 @@ export function MaltaStudio() {
       </Sidebar>
 
       <SidebarInset className="min-w-0 bg-[#f3f7f8]">
-        <header className="flex h-16 items-center gap-3 border-b border-slate-200/80 bg-white/85 px-4 backdrop-blur-xl md:px-7"><SidebarTrigger /><div className="h-5 w-px bg-slate-200" /><div className="relative max-w-md flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search Malta studio" placeholder={`Search ${active.toLowerCase()}…`} className="h-10 border-0 bg-slate-100 pl-9 shadow-none" /></div>{active !== "Calendar" && active !== "Idea bank" && <Button onClick={() => setModal(active === "Content bank" ? "upload" : "creator")} className="ml-auto rounded-xl bg-[#ff6b4a] text-white hover:bg-[#eb5d3e]"><Plus className="size-4" /><span className="hidden sm:inline">{active === "Content bank" ? "Upload media" : "Add creator"}</span></Button>}</header>
+        <header className="flex h-16 items-center gap-3 border-b border-slate-200/80 bg-white/85 px-4 backdrop-blur-xl md:px-7"><SidebarTrigger /><div className="h-5 w-px bg-slate-200" /><div className="relative max-w-md flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search Malta studio" placeholder={`Search ${active.toLowerCase()}…`} className="h-10 border-0 bg-slate-100 pl-9 shadow-none" /></div>{(active === "Content bank" || active === "Creators") && <Button onClick={() => setModal(active === "Content bank" ? "upload" : "creator")} className="ml-auto rounded-xl bg-[#ff6b4a] text-white hover:bg-[#eb5d3e]"><Plus className="size-4" /><span className="hidden sm:inline">{active === "Content bank" ? "Upload media" : "Add creator"}</span></Button>}</header>
 
         <main className="min-h-[calc(100vh-4rem)] overflow-x-hidden p-4 md:p-7">
           <div className="mx-auto max-w-[1500px]">
             {active === "Calendar" && <CalendarView posts={filteredPosts} media={media} onSelect={setSelectedPost} onCreate={(date) => { setComposerDate(date); setModal("post"); }} />}
             {active === "Content bank" && <ContentView media={filteredMedia} allMedia={media} filter={mediaFilter} onFilter={setMediaFilter} onSelect={setSelectedMedia} onUpload={() => setModal("upload")} query={query} onQuery={setQuery} />}
             {active === "Idea bank" && <IdeasView ideas={ideas} media={media} initialQuery={query} onCreate={createIdea} onUpdate={updateIdea} onUploadReference={uploadIdeaReference} onDelete={(idea) => setDeleteTarget({ entity: "idea", id: idea.id, label: idea.title })} />}
+            {active === "To-do" && <TodoView todos={todos.filter((todo) => `${todo.title} ${todo.notes}`.toLowerCase().includes(query.toLowerCase()))} onCreate={createTodo} onUpdate={updateTodo} onDelete={(todo) => setDeleteTarget({ entity: "todo", id: todo.id, label: todo.title })} />}
             {active === "Creators" && (creators.length ? <CreatorsView creators={creators.filter((c) => `${c.name} ${c.handle} ${c.specialties.join(" ")}`.toLowerCase().includes(query.toLowerCase()))} selected={selectedCreator} onSelect={setSelectedCreator} onDelete={(creator) => setDeleteTarget({ entity: "creator", id: creator.id, label: creator.name })} /> : <EmptyView eyebrow="Creators" title="No creators added" body="Add the people you brief, shoot with, or contact for the page." action="Add creator" onAction={() => setModal("creator")} />)}
           </div>
         </main>
@@ -508,6 +563,33 @@ function IdeaCard({ idea, media, onUpdate, onDelete }: { idea: Idea; media: Medi
     <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={save} aria-label="Idea notes" placeholder="Add notes" className="mt-2 min-h-24 resize-none border-0 bg-transparent px-0 shadow-none" />
     {asset && <MediaPreview item={asset} className="mt-3 aspect-video w-full rounded-lg" />}
     <div className="mt-4 text-xs text-white/40">{idea.createdBy}</div>
+  </article>;
+}
+
+function TodoView({ todos, onCreate, onUpdate, onDelete }: { todos: Todo[]; onCreate: () => Promise<void>; onUpdate: (todo: Todo, changes: Partial<Todo>) => Promise<void>; onDelete: (todo: Todo) => void }) {
+  const inProgress = todos.filter((todo) => todo.status === "In progress").length;
+  const completed = todos.filter((todo) => todo.status === "Completed").length;
+  return <>
+    <PageHeading eyebrow="Team checklist" title="To-do" body="Keep active tasks visible and mark them complete when they are finished." controls={<Button onClick={() => void onCreate()} className="bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New to-do</Button>} />
+    <section aria-label="To-do summary" className="mb-5 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10"><SummaryCard label="All tasks" value={todos.length} color="#b11226" /><SummaryCard label="In progress" value={inProgress} color="#eab308" /><SummaryCard label="Completed" value={completed} color="#22c55e" /></section>
+    <section aria-label="To-do board" className="min-h-[520px] rounded-xl border border-white/10 bg-[#0d0d0d] p-5 md:p-8">
+      {todos.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{todos.map((todo) => <TodoCard key={todo.id} todo={todo} onUpdate={onUpdate} onDelete={onDelete} />)}</div> : <div className="grid min-h-[430px] place-items-center text-center"><div><ListTodo className="mx-auto size-9 text-white/25" /><p className="mt-4 font-semibold">No to-dos yet</p><p className="mt-1 text-sm text-white/40">Add the first task for the Malta team.</p><Button onClick={() => void onCreate()} className="mt-5 bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New to-do</Button></div></div>}
+    </section>
+  </>;
+}
+
+function TodoCard({ todo, onUpdate, onDelete }: { todo: Todo; onUpdate: (todo: Todo, changes: Partial<Todo>) => Promise<void>; onDelete: (todo: Todo) => void }) {
+  const [title, setTitle] = useState(todo.title);
+  const [notes, setNotes] = useState(todo.notes);
+  useEffect(() => { setTitle(todo.title); setNotes(todo.notes); }, [todo.title, todo.notes]);
+  const save = () => { if (title !== todo.title || notes !== todo.notes) void onUpdate(todo, { title: title.trim() || "Untitled to-do", notes }); };
+  const completed = todo.status === "Completed";
+  return <article className={`rounded-xl border p-4 shadow-xl transition ${completed ? "border-green-500/40 bg-green-500/10" : "border-yellow-400/40 bg-yellow-400/10"}`}>
+    <div className="flex items-center justify-between gap-3"><Badge className={`border-0 ${completed ? "bg-green-500 text-black" : "bg-yellow-400 text-black"}`}>{todo.status}</Badge><Button variant="ghost" size="icon" onClick={() => onDelete(todo)} aria-label={`Delete ${todo.title}`}><Trash2 /></Button></div>
+    <Input value={title} onChange={(event) => setTitle(event.target.value)} onBlur={save} aria-label="To-do title" className="mt-4 border-0 bg-transparent px-0 text-lg font-semibold shadow-none" />
+    <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={save} aria-label="To-do notes" placeholder="Add task details" className="mt-2 min-h-24 resize-none border-0 bg-transparent px-0 shadow-none" />
+    <div className="mt-4 grid grid-cols-2 gap-2"><Button onClick={() => void onUpdate(todo, { status: "In progress" })} variant="outline" className={`border-yellow-400/40 ${!completed ? "bg-yellow-400 text-black hover:bg-yellow-300" : "text-yellow-300"}`}>In progress</Button><Button onClick={() => void onUpdate(todo, { status: "Completed" })} variant="outline" className={`border-green-500/40 ${completed ? "bg-green-500 text-black hover:bg-green-400" : "text-green-400"}`}>Completed</Button></div>
+    <p className="mt-4 text-xs text-white/40">{todo.createdBy}</p>
   </article>;
 }
 

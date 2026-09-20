@@ -32,6 +32,10 @@ async function createVercelRecord(request: Request) {
       const title = String(body.title ?? "").trim();
       if (!title) throw new Error("Idea title is required.");
       workspace.ideas.push({ id, kind: String(body.kind ?? "Idea"), title, notes: String(body.notes ?? ""), color: String(body.color ?? "coral"), media_id: String(body.mediaId ?? "") || null, linked_to: null, created_by: owner, created_at: now });
+    } else if (entity === "todo") {
+      const title = String(body.title ?? "").trim();
+      if (!title) throw new Error("To-do title is required.");
+      workspace.todos.unshift({ id, title, notes: String(body.notes ?? ""), status: "In progress", created_by: owner, created_at: now });
     } else if (entity === "creator") {
       const name = String(body.name ?? "").trim();
       if (!name) throw new Error("Creator name is required.");
@@ -58,6 +62,11 @@ async function updateVercelRecord(request: Request) {
     } else if (entity === "idea") {
       const idea = workspace.ideas.find((item) => item.id === id);
       if (idea) Object.assign(idea, { title: String(body.title ?? ""), notes: String(body.notes ?? ""), linked_to: String(body.linkedTo ?? "") || null });
+    } else if (entity === "todo") {
+      const todo = workspace.todos.find((item) => item.id === id);
+      const status = String(body.status ?? "In progress");
+      if (!new Set(["In progress", "Completed"]).has(status)) throw new Error("Invalid to-do status.");
+      if (todo) Object.assign(todo, { title: String(body.title ?? todo.title), notes: String(body.notes ?? todo.notes), status });
     } else if (entity === "creator") {
       const creator = workspace.creators.find((item) => item.id === id);
       if (creator) Object.assign(creator, { status: String(body.status ?? "Prospect"), next_action: String(body.nextAction ?? "") });
@@ -84,6 +93,8 @@ async function deleteVercelRecord(request: Request) {
       }
     } else if (entity === "idea") {
       workspace.ideas = workspace.ideas.filter((item) => item.id !== id).map((item) => item.linked_to === id ? { ...item, linked_to: null } : item);
+    } else if (entity === "todo") {
+      workspace.todos = workspace.todos.filter((item) => item.id !== id);
     } else if (entity === "creator") {
       workspace.creators = workspace.creators.filter((item) => item.id !== id);
     } else {
@@ -108,7 +119,7 @@ export async function GET() {
       db().prepare("SELECT * FROM creators ORDER BY created_at DESC"),
       db().prepare("SELECT * FROM post_comments ORDER BY created_at ASC"),
     ]);
-    return Response.json({ posts: posts.results, media: media.results, ideas: ideas.results, creators: creators.results, comments: comments.results });
+    return Response.json({ posts: posts.results, media: media.results, ideas: ideas.results, todos: [], creators: creators.results, comments: comments.results });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to load workspace" }, { status: 503 });
   }
