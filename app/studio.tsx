@@ -169,9 +169,9 @@ export function MaltaStudio() {
     setNotice("Media notes saved");
   }, []);
 
-  const createIdea = useCallback(async (kind: "Idea" | "Reference", item?: Media) => {
+  const createIdea = useCallback(async (kind: "Idea" | "Reference", item?: Media, title?: string, notes?: string) => {
     const temporaryId = `pending-${crypto.randomUUID()}`;
-    const optimistic: Idea = { id: temporaryId, kind, title: item?.filename || "Untitled idea", notes: item?.caption || "", color: "coral", createdBy: "Malta team", mediaId: item?.id };
+    const optimistic: Idea = { id: temporaryId, kind, title: title?.trim() || item?.filename || "Untitled idea", notes: notes ?? item?.caption ?? "", color: "coral", createdBy: "Malta team", mediaId: item?.id };
     setIdeas((items) => [optimistic, ...items]);
     setNotice(kind === "Reference" ? "Reference added" : "Idea added");
     try {
@@ -182,6 +182,16 @@ export function MaltaStudio() {
       throw error;
     }
   }, [saveRecord]);
+
+  const confirmIdea = useCallback(async ({ title, notes, mediaId, file }: { title: string; notes: string; mediaId?: string; file?: File }) => {
+    let item = media.find((asset) => asset.id === mediaId);
+    if (file) {
+      const saved = await uploadMediaFile(file);
+      item = { id: String(saved.id), filename: file.name, caption: "", status: "Draft", mimeType: file.type, uploadedBy: "Malta team", usedCount: 0, tone: "crimson", url: String(saved.url || "") };
+      setMedia((items) => [item as Media, ...items]);
+    }
+    await createIdea("Idea", item, title, notes);
+  }, [createIdea, media]);
 
   const createTodo = useCallback(async () => {
     const temporaryId = `pending-${crypto.randomUUID()}`;
@@ -332,7 +342,7 @@ export function MaltaStudio() {
           <div className="mx-auto max-w-[1500px]">
             {active === "Calendar" && <CalendarView posts={filteredPosts} media={media} onSelect={setSelectedPost} onCreate={(date) => { setComposerDate(date); setModal("post"); }} />}
             {active === "Content bank" && <ContentView media={filteredMedia} allMedia={media} filter={mediaFilter} onFilter={setMediaFilter} onSelect={setSelectedMedia} onUpload={() => setModal("upload")} query={query} onQuery={setQuery} />}
-            {active === "Idea bank" && <IdeasView ideas={ideas} media={media} initialQuery={query} onCreate={createIdea} onUpdate={updateIdea} onUploadReference={uploadIdeaReference} onDelete={(idea) => setDeleteTarget({ entity: "idea", id: idea.id, label: idea.title })} />}
+            {active === "Idea bank" && <IdeasView ideas={ideas} media={media} initialQuery={query} onCreate={createIdea} onConfirmIdea={confirmIdea} onUpdate={updateIdea} onUploadReference={uploadIdeaReference} onDelete={(idea) => setDeleteTarget({ entity: "idea", id: idea.id, label: idea.title })} />}
             {active === "To-do" && <TodoView todos={todos.filter((todo) => `${todo.title} ${todo.notes}`.toLowerCase().includes(query.toLowerCase()))} onCreate={createTodo} onUpdate={updateTodo} onDelete={(todo) => setDeleteTarget({ entity: "todo", id: todo.id, label: todo.title })} />}
             {active === "Creators" && (creators.length ? <CreatorsView creators={creators.filter((c) => `${c.name} ${c.handle} ${c.specialties.join(" ")}`.toLowerCase().includes(query.toLowerCase()))} selected={selectedCreator} onSelect={setSelectedCreator} onDelete={(creator) => setDeleteTarget({ entity: "creator", id: creator.id, label: creator.name })} /> : <EmptyView eyebrow="Creators" title="No creators added" body="Add the people you brief, shoot with, or contact for the page." action="Add creator" onAction={() => setModal("creator")} />)}
           </div>
@@ -521,11 +531,13 @@ function ContentView({ media, allMedia, filter, onFilter, onSelect, onUpload, qu
   </>;
 }
 
-function IdeasView({ ideas, media, initialQuery, onCreate, onUpdate, onUploadReference, onDelete }: { ideas: Idea[]; media: Media[]; initialQuery: string; onCreate: (kind: "Idea" | "Reference", item?: Media) => Promise<void>; onUpdate: (idea: Idea, changes: Partial<Idea>) => Promise<void>; onUploadReference: (file: File) => Promise<void>; onDelete: (idea: Idea) => void }) {
+function IdeasView({ ideas, media, initialQuery, onCreate, onConfirmIdea, onUpdate, onUploadReference, onDelete }: { ideas: Idea[]; media: Media[]; initialQuery: string; onCreate: (kind: "Idea" | "Reference", item?: Media) => Promise<void>; onConfirmIdea: (value: { title: string; notes: string; mediaId?: string; file?: File }) => Promise<void>; onUpdate: (idea: Idea, changes: Partial<Idea>) => Promise<void>; onUploadReference: (file: File) => Promise<void>; onDelete: (idea: Idea) => void }) {
   const [filter, setFilter] = useState("All");
   const [localQuery, setLocalQuery] = useState(initialQuery);
   const [zoom, setZoom] = useState(.8);
   const [referenceOpen, setReferenceOpen] = useState(false);
+  const [ideaOpen, setIdeaOpen] = useState(false);
+  const [savingIdea, setSavingIdea] = useState(false);
   useEffect(() => setLocalQuery(initialQuery), [initialQuery]);
   const visible = ideas.filter((idea) => {
     if (filter === "Ideas" && idea.kind !== "Idea") return false;
@@ -533,7 +545,7 @@ function IdeasView({ ideas, media, initialQuery, onCreate, onUpdate, onUploadRef
     return `${idea.title} ${idea.notes}`.toLowerCase().includes(localQuery.toLowerCase());
   });
   return <>
-    <PageHeading eyebrow="Creative pipeline" title="Idea bank" body="Shape rough post angles, references, and supporting material before they become drafts." controls={<div className="flex gap-2"><Button variant="outline" onClick={() => setReferenceOpen(true)}><Images /> Add reference</Button><Button onClick={() => void onCreate("Idea")} className="bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New idea</Button></div>} />
+    <PageHeading eyebrow="Creative pipeline" title="Idea bank" body="Shape rough post angles, references, and supporting material before they become drafts." controls={<div className="flex gap-2"><Button variant="outline" onClick={() => setReferenceOpen(true)}><Images /> Add reference</Button><Button onClick={() => setIdeaOpen(true)} className="bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New idea</Button></div>} />
     <section aria-label="Idea board" className="overflow-hidden rounded-xl border border-white/10 bg-[#0d0d0d]">
       <div className="flex flex-col gap-3 border-b border-white/10 p-4 xl:flex-row xl:items-center">
         <div className="flex flex-wrap gap-1 rounded-lg bg-black p-1" aria-label="Filter idea cards">{["All", "Ideas", "References"].map((item) => <Button key={item} size="sm" variant={filter === item ? "default" : "ghost"} onClick={() => setFilter(item)} className={filter === item ? "bg-[#b11226]" : ""}>{item}</Button>)}</div>
@@ -542,10 +554,11 @@ function IdeasView({ ideas, media, initialQuery, onCreate, onUpdate, onUploadRef
         <div className="flex items-center rounded-lg border border-white/10"><Button variant="ghost" size="icon" onClick={() => setZoom((value) => Math.max(.6, value - .1))} aria-label="Zoom out"><ZoomOut /></Button><span className="w-12 text-center text-xs text-white/55">{Math.round(zoom * 100)}%</span><Button variant="ghost" size="icon" onClick={() => setZoom((value) => Math.min(1.2, value + .1))} aria-label="Zoom in"><ZoomIn /></Button></div>
       </div>
       <div className="min-h-[520px] overflow-auto bg-black/30 p-5 md:p-8">
-        {visible.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3" style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: `${100 / zoom}%` }}>{visible.map((idea) => <IdeaCard key={idea.id} idea={idea} media={media} onUpdate={onUpdate} onDelete={onDelete} />)}</div> : <div className="grid min-h-[400px] place-items-center text-center"><div><Lightbulb className="mx-auto size-8 text-white/25" /><p className="mt-4 font-semibold">No cards in this view</p><Button onClick={() => void onCreate("Idea")} className="mt-4 bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New idea</Button></div></div>}
+        {visible.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3" style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: `${100 / zoom}%` }}>{visible.map((idea) => <IdeaCard key={idea.id} idea={idea} media={media} onUpdate={onUpdate} onDelete={onDelete} />)}</div> : <div className="grid min-h-[400px] place-items-center text-center"><div><Lightbulb className="mx-auto size-8 text-white/25" /><p className="mt-4 font-semibold">No cards in this view</p><Button onClick={() => setIdeaOpen(true)} className="mt-4 bg-[#b11226] hover:bg-[#8f0d1e]"><Plus /> New idea</Button></div></div>}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-4 py-3 text-xs text-white/40"><span>{ideas.length} cards · {ideas.filter((idea) => idea.kind === "Reference").length} references</span><span>Changes save automatically</span></div>
     </section>
+    <Sheet open={ideaOpen} onOpenChange={setIdeaOpen}><SheetContent side="bottom" className="max-h-[88vh] overflow-y-auto rounded-t-3xl border-white/15"><form onSubmit={async (event) => { event.preventDefault(); const form = event.currentTarget; const values = new FormData(form); const fileValue = values.get("ideaFile"); setSavingIdea(true); try { await onConfirmIdea({ title: String(values.get("ideaTitle") || ""), notes: String(values.get("ideaNotes") || ""), mediaId: String(values.get("ideaMediaId") || "") || undefined, file: fileValue instanceof File && fileValue.size ? fileValue : undefined }); form.reset(); setIdeaOpen(false); } finally { setSavingIdea(false); } }}><SheetHeader><SheetTitle>Create an idea</SheetTitle><SheetDescription>Add the details and optional media, then confirm to save the card.</SheetDescription></SheetHeader><div className="mx-auto grid max-w-3xl gap-5 py-6"><div className="grid gap-2"><Label htmlFor="idea-title">Idea title</Label><Input id="idea-title" name="ideaTitle" required autoFocus placeholder="What is the content idea?" /></div><div className="grid gap-2"><Label htmlFor="idea-notes">Notes</Label><Textarea id="idea-notes" name="ideaNotes" placeholder="Angle, hook, caption direction, or production notes" className="min-h-28" /></div><div className="grid gap-2"><Label htmlFor="idea-media">Choose from Content Bank</Label><select id="idea-media" name="ideaMediaId" className="h-11 rounded-xl border border-white/15 bg-[#0d0d0d] px-3 text-sm"><option value="">No existing media</option>{media.map((item) => <option key={item.id} value={item.id}>{item.filename}</option>)}</select></div><div className="grid gap-2 rounded-xl border border-dashed border-white/15 p-4"><Label htmlFor="idea-file">Or upload media to this idea</Label><Input id="idea-file" name="ideaFile" type="file" accept="image/*,video/*" /><p className="text-xs text-white/40">A new upload overrides the Content Bank selection and is also added to the bank.</p></div></div><div className="flex justify-end gap-3 border-t border-white/10 pt-5"><Button type="button" variant="outline" onClick={() => setIdeaOpen(false)}>Cancel</Button><Button type="submit" disabled={savingIdea} className="bg-[#b11226] hover:bg-[#8f0d1e]">{savingIdea ? "Saving…" : "Confirm & save idea"}</Button></div></form></SheetContent></Sheet>
     <Sheet open={referenceOpen} onOpenChange={setReferenceOpen}><SheetContent side="bottom" className="max-h-[82vh] overflow-y-auto rounded-t-3xl border-white/15"><SheetHeader><SheetTitle>Add a reference card</SheetTitle><SheetDescription>Choose an image or video from the Content Bank, or upload a new one.</SheetDescription></SheetHeader><div className="mt-5"><label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#b11226] px-4 py-2 text-sm font-semibold text-white hover:bg-[#8f0d1e]"><Upload className="size-4" /> Upload media<input type="file" accept="image/*,video/*" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void onUploadReference(file).then(() => setReferenceOpen(false)); }} /></label></div>{media.length ? <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">{media.map((item) => <button key={item.id} onClick={() => void onCreate("Reference", item).then(() => setReferenceOpen(false))} className="rounded-xl border border-white/10 bg-white/5 p-2 text-left hover:border-[#b11226]"><MediaPreview item={item} className="aspect-square w-full rounded-lg" /><p className="mt-2 truncate text-xs font-medium">{item.filename}</p><span className="mt-1 block text-xs text-[#b11226]">Add card</span></button>)}</div> : <p className="mt-6 rounded-xl border border-dashed border-white/15 p-6 text-center text-sm text-white/45">No Content Bank media yet.</p>}</SheetContent></Sheet>
   </>;
 }
