@@ -373,8 +373,8 @@ function EmptyView({ eyebrow, title, body, action, onAction }: { eyebrow: string
 
 function MediaPreview({ item, className = "" }: { item?: Media; className?: string }) {
   if (!item) return <div className={`tone-crimson ${className}`}><div className="grid size-full place-items-center"><ImageIcon className="size-7 text-white/35" /></div></div>;
-  if (item.mimeType.startsWith("video/")) return <video src={item.url || `/api/media/${item.id}`} controls muted playsInline preload="metadata" className={`bg-black object-cover ${className}`} />;
-  return <img src={item.url || `/api/media/${item.id}`} alt={item.filename} className={`bg-black object-cover ${className}`} />;
+  if (item.mimeType.startsWith("video/")) return <video src={item.url || `/api/media/${item.id}`} controls muted playsInline preload="metadata" style={{ aspectRatio: "auto" }} className={`h-auto max-h-[72vh] w-full bg-black object-contain ${className}`} />;
+  return <img src={item.url || `/api/media/${item.id}`} alt={item.filename} style={{ aspectRatio: "auto" }} className={`h-auto max-h-[72vh] w-full bg-black object-contain ${className}`} />;
 }
 
 function ContentThumbnail({ item }: { item: Media }) {
@@ -389,10 +389,10 @@ function ContentThumbnail({ item }: { item: Media }) {
       aria-label={`Video preview for ${item.filename}`}
       onMouseEnter={(event) => void event.currentTarget.play().catch(() => undefined)}
       onMouseLeave={(event) => { event.currentTarget.pause(); event.currentTarget.currentTime = .1; }}
-      className="absolute inset-0 size-full bg-black object-cover"
+      className="absolute inset-0 size-full bg-black object-contain"
     />;
   }
-  return <img src={src} alt={item.filename} className="absolute inset-0 size-full bg-black object-cover" />;
+  return <img src={src} alt={item.filename} className="absolute inset-0 size-full bg-black object-contain" />;
 }
 
 function CalendarView({ posts, media, onSelect, onCreate }: { posts: Post[]; media: Media[]; onSelect: (post: Post) => void; onCreate: (date: string) => void }) {
