@@ -13,6 +13,7 @@ export type WorkspaceData = {
 
 const WORKSPACE_PATH = "workspace/malta-media-management.json";
 const MEDIA_RECORD_PREFIX = "workspace/media-records/";
+const IDEA_RECORD_PREFIX = "workspace/idea-records/";
 
 const emptyWorkspace = (): WorkspaceData => ({
   posts: [],
@@ -62,6 +63,16 @@ async function readLatestWorkspace(): Promise<WorkspaceData> {
       if (recordUrl) existingUrls.add(recordUrl);
     }
   }
+
+  const ideaList = await list({ prefix: IDEA_RECORD_PREFIX, limit: 1000 });
+  const ideaRecords = await Promise.all(ideaList.blobs.map(async (blob) => {
+    const record = await get(blob.pathname, { access: "public", useCache: false });
+    if (!record || record.statusCode !== 200 || !record.stream) return null;
+    return await new Response(record.stream).json() as WorkspaceRow;
+  }));
+  const ideasById = new Map(workspace.ideas.map((idea) => [String(idea.id), idea]));
+  for (const record of ideaRecords) if (record?.id) ideasById.set(String(record.id), record);
+  workspace.ideas = Array.from(ideasById.values()).sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
   return workspace;
 }
 
@@ -82,6 +93,22 @@ export async function writeVercelMediaRecord(record: WorkspaceRow) {
 export async function deleteVercelMediaRecord(id: string) {
   assertStorage();
   await del(`${MEDIA_RECORD_PREFIX}${id}.json`);
+}
+
+export async function writeVercelIdeaRecord(record: WorkspaceRow) {
+  assertStorage();
+  await put(`${IDEA_RECORD_PREFIX}${record.id}.json`, JSON.stringify(record), {
+    access: "public",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: "application/json",
+    cacheControlMaxAge: 60,
+  });
+}
+
+export async function deleteVercelIdeaRecord(id: string) {
+  assertStorage();
+  await del(`${IDEA_RECORD_PREFIX}${id}.json`);
 }
 
 export async function mutateVercelWorkspace(mutator: (workspace: WorkspaceData) => void | Promise<void>) {

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { mutateVercelWorkspace, readVercelWorkspace } from "@/lib/vercel-workspace";
+import { deleteVercelIdeaRecord, mutateVercelWorkspace, readVercelWorkspace, writeVercelIdeaRecord } from "@/lib/vercel-workspace";
 
 const allowedStatuses = new Set(["Pending", "Approved", "Denied", "Needs revisions", "Draft", "In review", "Changes requested"]);
 const onVercel = () => Boolean(process.env.VERCEL);
@@ -10,6 +10,13 @@ async function createVercelRecord(request: Request) {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   const owner = "Malta team";
+
+  if (entity === "idea") {
+    const title = String(body.title ?? "").trim();
+    if (!title) throw new Error("Idea title is required.");
+    await writeVercelIdeaRecord({ id, kind: String(body.kind ?? "Idea"), title, notes: String(body.notes ?? ""), color: String(body.color ?? "coral"), media_id: String(body.mediaId ?? "") || null, linked_to: null, created_by: owner, created_at: now });
+    return Response.json({ id }, { status: 201 });
+  }
 
   await mutateVercelWorkspace((workspace) => {
     if (entity === "post") {
@@ -28,10 +35,6 @@ async function createVercelRecord(request: Request) {
       if (!postId || !commentBody) throw new Error("Post and comment are required.");
       if (!workspace.posts.some((post) => post.id === postId)) throw new Error("Post not found.");
       workspace.comments.push({ id, post_id: postId, body: commentBody, author: owner, created_at: now });
-    } else if (entity === "idea") {
-      const title = String(body.title ?? "").trim();
-      if (!title) throw new Error("Idea title is required.");
-      workspace.ideas.push({ id, kind: String(body.kind ?? "Idea"), title, notes: String(body.notes ?? ""), color: String(body.color ?? "coral"), media_id: String(body.mediaId ?? "") || null, linked_to: null, created_by: owner, created_at: now });
     } else if (entity === "todo") {
       const title = String(body.title ?? "").trim();
       if (!title) throw new Error("To-do title is required.");
@@ -53,15 +56,19 @@ async function updateVercelRecord(request: Request) {
   const entity = String(body.entity ?? "");
   const id = String(body.id ?? "");
   if (!id) return Response.json({ error: "Record id is required." }, { status: 400 });
+  if (entity === "idea") {
+    const workspace = await readVercelWorkspace();
+    const idea = workspace.ideas.find((item) => item.id === id);
+    if (!idea) return Response.json({ error: "Idea not found." }, { status: 404 });
+    await writeVercelIdeaRecord({ ...idea, title: String(body.title ?? idea.title), notes: String(body.notes ?? idea.notes), linked_to: String(body.linkedTo ?? idea.linked_to ?? "") || null });
+    return Response.json({ ok: true });
+  }
   await mutateVercelWorkspace((workspace) => {
     if (entity === "post") {
       const status = String(body.status ?? "");
       if (!allowedStatuses.has(status)) throw new Error("Invalid workflow status.");
       const post = workspace.posts.find((item) => item.id === id);
       if (post) post.status = status;
-    } else if (entity === "idea") {
-      const idea = workspace.ideas.find((item) => item.id === id);
-      if (idea) Object.assign(idea, { title: String(body.title ?? ""), notes: String(body.notes ?? ""), linked_to: String(body.linkedTo ?? "") || null });
     } else if (entity === "todo") {
       const todo = workspace.todos.find((item) => item.id === id);
       const status = String(body.status ?? "In progress");
@@ -82,6 +89,13 @@ async function deleteVercelRecord(request: Request) {
   const entity = String(body.entity ?? "");
   const id = String(body.id ?? "");
   if (!id) return Response.json({ error: "Record id is required." }, { status: 400 });
+  if (entity === "idea") {
+    await mutateVercelWorkspace((workspace) => {
+      workspace.ideas = workspace.ideas.filter((item) => item.id !== id).map((item) => item.linked_to === id ? { ...item, linked_to: null } : item);
+    });
+    await deleteVercelIdeaRecord(id);
+    return Response.json({ ok: true });
+  }
   await mutateVercelWorkspace((workspace) => {
     if (entity === "post") {
       const post = workspace.posts.find((item) => item.id === id);
@@ -91,8 +105,6 @@ async function deleteVercelRecord(request: Request) {
         const media = workspace.media.find((item) => item.id === post.media_id);
         if (media) media.used_count = Math.max(Number(media.used_count ?? 0) - 1, 0);
       }
-    } else if (entity === "idea") {
-      workspace.ideas = workspace.ideas.filter((item) => item.id !== id).map((item) => item.linked_to === id ? { ...item, linked_to: null } : item);
     } else if (entity === "todo") {
       workspace.todos = workspace.todos.filter((item) => item.id !== id);
     } else if (entity === "creator") {
